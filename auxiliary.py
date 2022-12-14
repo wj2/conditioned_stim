@@ -67,7 +67,11 @@ def process_videos(
     
     return full_vids
 
-def _add_video_data(data, video_data, video_key='video_{}', red_func=np.sum):
+def _ident_func(x, **kwargs):
+    return x
+
+def _add_video_data(data, video_data, video_key='video_{}',
+                    red_func=_ident_func):
     cams = list(video_data.values())[0]
     new_dict = {}
     for _, row in data.iterrows():
