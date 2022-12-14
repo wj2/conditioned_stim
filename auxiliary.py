@@ -28,7 +28,7 @@ def process_videos(
         folder,
         file_template=video_template,
         cams=('0', '1'),
-        keep_pca=.99,
+        keep_pca=1,
         combine_videos=False,
 ):
     fls = os.listdir(folder)

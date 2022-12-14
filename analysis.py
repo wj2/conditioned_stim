@@ -60,11 +60,12 @@ def _flatten_X(X):
         cg = X[:, i]
         try:
             vid_shape = cg[0].shape
+            assert len(vid_shape) > 0
             new_vid = np.zeros((len(cg), vid_shape[0]))
             for j, cg_j in enumerate(cg):
                 new_vid[j] = cg_j
             col_groups.append(new_vid)
-        except AttributeError:
+        except:
             cg = np.expand_dims(cg, 1)
             col_groups.append(cg)
     return np.concatenate(col_groups, axis=1).astype(float)
@@ -75,6 +76,7 @@ def decode_valence(data, *args, predictors=default_predictors,
                    mask_func=_make_block_masks,
                    model=skm.SVC, test_trls=None, keep_keys=None,
                    target_func=_binary_valence,
+                   pre_pca=.99,
                    kernel='rbf', **kwargs):
     if keep_keys is None:
         keep_keys = [valence_key,]
@@ -86,7 +88,7 @@ def decode_valence(data, *args, predictors=default_predictors,
     train_mask, test_mask = mask_func(data, *args, existing_mask=nan_mask,
                                       **kwargs)
 
-    pipe = na.make_model_pipeline(model=model, kernel=kernel)
+    pipe = na.make_model_pipeline(model=model, kernel=kernel, pca=pre_pca)
 
     cv = shuffler(n_cv, test_size=test_frac)
     out = skms.cross_validate(pipe, X[train_mask], y[train_mask], cv=cv,
@@ -124,4 +126,18 @@ def decode_valence_mag(*args, train_block=1, test_block=2, use_pos=True,
                           target_func=_mag_valence,
                           mask_func=mask_func,
                           keep_keys=['valence', 'trial_num'], **kwargs)
-    
+
+default_dec_dict = {
+    'block 1 to 2':(decode_valence_block, {'train_block':1, 'test_block':2}),
+    'block 2 to 1':(decode_valence_block, {'train_block':2, 'test_block':1}),
+    'time': (decode_valence_time, {'trial_cutoff':50}),
+    'mag': (decode_valence_mag, {'train_block':1, 'test_block':2}),
+}
+def decode_valence_all(*args, dec_dict=default_dec_dict, **kwargs):
+    out_dict = {}
+    for k, (func, dec_kwargs) in dec_dict.items():
+        full_kwargs = {}
+        full_kwargs.update(dec_kwargs)
+        full_kwargs.update(kwargs)
+        out_dict[k] = func(*args, **full_kwargs)
+    return out_dict
