@@ -25,7 +25,7 @@ if __name__ == '__main__':
         path, _ = os.path.split(data_file)
         video_folder = os.path.join(path, 'video_files')
     else:
-        video_folder = None
+        video_folder = args.video_folder
 
     vs = csx.process_videos(video_folder)
     data = csx.load_data(data_file, folder='')
