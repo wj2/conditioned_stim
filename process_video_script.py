@@ -14,6 +14,8 @@ def create_parser():
                         help='path to save the output at')
     parser.add_argument('--max_load', default=np.inf, type=float,
                         help='maximum number of videos to load, for testing')
+    parser.add_argument('--video_file_template', default=csx.video_template,
+                        type=str, help='regex to use to find video files')
     return parser
 
 
