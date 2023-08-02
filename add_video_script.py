@@ -5,6 +5,7 @@ import pickle
 
 import conditioned_stimulus.auxiliary as csx
 
+
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several autoencoders')
     parser.add_argument('data_file', help='path to session_df to use')
@@ -15,6 +16,7 @@ def create_parser():
                         help='path to video files -- will use "video_files" subfolder'
                         ' of the folder holding the data if not supplied')
     return parser
+
 
 if __name__ == '__main__':
     parser = create_parser()

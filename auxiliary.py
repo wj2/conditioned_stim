@@ -1,114 +1,240 @@
-
 import os
 import pickle as p
 import numpy as np
 import skvideo.io as skv_io
 import skvideo.utils as skv_u
 import sklearn.decomposition as skd
+import pandas as pd
 
 import re
 
-## PATHS
-DATA_FOLD = '../data/conditioned_stim/'
-FIG_FOLD = 'conditioned_stimulus/figs/'
+# PATHS
+DATA_FOLD = "../data/conditioned_stim/"
+FIG_FOLD = "conditioned_stimulus/figs/"
 
-def load_data(fl, folder=DATA_FOLD):
+
+def load_data(fl, folder=DATA_FOLD, key='data_frame'):
     fp = os.path.join(folder, fl)
-    return p.load(open(fp, 'rb'))
+    return p.load(open(fp, "rb"))[key]
 
-def _dim_red_video(video, use_pca=None, keep_pca=.99):
+
+def _dim_red_video(video, use_pca=None, keep_pca=0.99):
     if use_pca is None:
-        use_pca = skd.PCA(keep_pca)
-        use_pca.fit(video)
-    return use_pca, use_pca.transform(video)    
+        use_pca = skd.IncrementalPCA(keep_pca)
+    use_pca.partial_fit(video)
+    return use_pca, use_pca.transform(video)
 
-video_template = ('(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_trial_(?P<trial>[0-9]+)'
-                  '_cam(?P<cam>[0-9]+).mp4')
-def process_videos(
-        folder,
-        file_template=video_template,
-        cams=('0', '1'),
-        keep_pca=1,
-        combine_videos=False,
-):
+
+video_name_template = (
+    "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
+    "_(?P<trial>[0-9]+).?"
+)
+video_template = video_name_template + "\.mp4"
+
+
+def interpret_video_file(fl, file_template=video_template):
+    m = re.match(file_template, fl)
+    if m is not None:
+        date = m.group("date")
+        trial = m.group("trial")
+        cam = m.group("cam")
+        monkey = m.group("monkey")
+        out = (date, trial, cam, monkey)
+    else:
+        out = None
+    return out
+
+
+def _video_generator(folder, file_template=video_template, max_load=np.inf):
     fls = os.listdir(folder)
-    videos = {}
-    cam_pca = {}
-    comb_pca = None
-    full_vids = {}
+    loaded = 0
     for fl in fls:
-        m = re.match(file_template, fl)
-        if m is not None:
-            date = m.group('date')
-            trial = m.group('trial')
-            cam = m.group('cam')
-            monkey = m.group('monkey')
+        out = interpret_video_file(fl, file_template)
+        if out is not None:
+            date, trial, cam, monkey = out
             video = skv_io.vread(os.path.join(folder, fl))
             video = skv_u.rgb2gray(video)
+            print(video.shape)
             video = np.reshape(video, (video.shape[0], -1))
-            cam_pca[cam], video = _dim_red_video(video, use_pca=cam_pca.get(cam),
-                                                 keep_pca=keep_pca)
-            trl_dict = videos.get((date, monkey, trial), {})
-            trl_dict[cam] = video
-            videos[(date, monkey, trial)] = trl_dict
-            if len(trl_dict.keys()) == len(cams):
-                if combine_videos:
-                    full_vid = np.concatenate(list(trl_dict[cam] for cam in cams),
-                                              axis=1)
-                    add_obj = _dim_red_video(full_vid, use_pca=comb_pca,
-                                             keep_pca=keep_pca)
-                else:
-                    add_obj = trl_dict
-                d_dict = full_vids.get((date, monkey), {})
-                d_dict[trial] = add_obj
-                full_vids[(date, monkey)] = d_dict
+            loaded += 1
+            yield (date, trial, cam, monkey), video
+        if loaded >= max_load:
+            break
 
-                _ = videos.pop((date, monkey, trial))
+
+def process_videos(
+    folder,
+    file_template=video_template,
+    cams=("0", "1"),
+    keep_pca=None,
+    max_load=np.inf,
+):
+    """
+    Reduce the dimensionality of the videos, while keeping as much variance as
+    possible.
+
+    The output of this function should be saved as a pickle file for use when
+    loading the corresponding behavioral data file.
+
+    Parameters
+    ----------
+    folder : str
+        The relative or absolute path to the folder with video files.
+    file_template : str, optional
+        A regular expression that can be used to find the desired video files. It
+        should also have the following named groups: "date", "monkey", "cam", "trial"
+    cams : sequence of str, optional
+        The expected cams.
+    max_load : numeric, optional
+        The function will stop loading videos once this is exceeded, just useful for
+        testing.
+
+    Returns
+    -------
+    videos : dictionary
+        Dictionary with keys (date, monkey, trial) with values that are also
+        dictionaries and have keys corresponding to different cameras with video
+        values
+    cam_pca : dictionary
+        Dictionary with keys corresponding to cameras and values coresponding to
+        the IncrementalPCA object for that camera.
     
-    return full_vids
+    """
+    videos = {}
+    cam_pca = {}
+    for info, video in _video_generator(folder, file_template=file_template,
+                                        max_load=max_load):
+        date, trial, cam, monkey = info
+
+        use_pca = cam_pca.get(cam, skd.IncrementalPCA(keep_pca))
+        use_pca.partial_fit(video)
+        cam_pca[cam] = use_pca
+        print(info)
+    print('-----')
+    for info, video in _video_generator(folder, file_template=file_template,
+                                        max_load=max_load):
+        date, trial, cam, monkey = info
+        use_pca = cam_pca.get(cam)
+        video_dr = use_pca.transform(video)
+
+        trl_dict = videos.get((date, monkey, trial), {})
+        trl_dict[cam] = video_dr
+        videos[(date, monkey, trial)] = trl_dict
+    return videos, cam_pca
+
 
 def _ident_func(x, **kwargs):
     return x
 
-def _add_video_data(data, video_data, video_key='video_{}',
-                    red_func=_ident_func):
-    cams = list(video_data.values())[0]
-    new_dict = {}
+
+def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func,
+                    window_start='Trace Start', window_end='Delay Off',
+                    video_times_key='cam{}_trial_time',
+                    video_file_key="cam1_trial_name",
+                    vn_template=video_name_template):
+    cams = list(video_data[list(video_data.keys())[0]].keys())
+    new_dict = {cam: [] for cam in cams}
     for _, row in data.iterrows():
-        date = row['date']
-        monkey = row['subject']
-        trial = row['trial_num'] - 1
-        vids = video_data[(date, monkey)].get(str(trial))
-        if vids is not None:
-            for cam, vid in vids.items():
-                vk = video_key.format(cam)
-                vo = new_dict.get(vk, [])
-                vid = red_func(vid, axis=0)
-                vo.append(vid)
-                new_dict[vk] = vo
+        out = interpret_video_file(row[video_file_key], vn_template)
+        date, trial, _, monkey = out
+        # vids = video_data[(date, monkey)].get(str(trial))
+        vid = video_data.get((date, monkey, str(trial)))
+
+        row_bounds = (row[window_start], row[window_end])
+        if vid is not None and not (pd.isnull(row_bounds[0])
+                                    or pd.isnull(row_bounds[1])):
+            for cam, vid in vid.items():
+                vid_list = new_dict.get(cam, [])
+                video_times = row[video_times_key.format(cam)]
+                if video_times.shape[0] == vid.shape[0]:
+                    mask = np.logical_and(video_times >= row_bounds[0],
+                                          video_times < row_bounds[1])
+                    vid_list.append(vid[mask])
+                else:
+                    print(video_times.shape[0], vid.shape[0])
+                    print('mismatched length', trial)
+                    vid_list.append(None)
+                new_dict[cam] = vid_list
         else:
-            print('no {}, {}, {}'.format(date, monkey, trial))
-            list(new_dict[k].append(np.nan) for k in new_dict.keys())
+            if vid is None:
+                print("missing vid", trial)
+            else:
+                print("null bounds", trial)
+            for cam in new_dict.keys():
+                vid_list = new_dict.get(cam, [])
+                vid_list.append(None)
+                new_dict[cam] = vid_list
     for k, d in new_dict.items():
-        data[k] = d
+        data[video_key.format(k)] = d
     return data
-    
+
+
+def _mask_eyes(
+    data,
+    trace_field,
+    map_field,
+    ex="eye_x",
+    ey="eye_y",
+    start="Trace Start",
+    end="Delay Off",
+    eye_range=(-30, 30),
+):
+    masked_eyes = []
+    eye_maps = []
+    trls = data[[ex, ey, start, end]]
+    for trl in trls.itertuples(index=False):
+        ex_t, ey_t, start_t, end_t = trl
+        eye = np.stack((ex_t, ey_t), axis=1)
+        ts = np.arange(eye.shape[0])
+        if pd.isna(start_t) or pd.isna(end_t):
+            mask = np.ones_like(ts, dtype=bool)
+        else:
+            mask = np.logical_and(ts > start_t,
+                                  ts < end_t)
+        masked_eyes.append(eye[mask])
+        eye_map = np.histogramdd(
+            eye[mask],
+            range=(eye_range,)*2,
+            density=True,
+        )
+        eye_maps.append(eye_map[0].flatten())
+    data[trace_field] = masked_eyes
+    data[map_field] = eye_maps
+    return data
+
+
 # add trial num within block
 def preprocess_data(
-        data,
-        sum_fields=('lick_count_window', 'blink_count_window'),
-        session_marker='date',
-        block_field='block',
-        tnum_field='trial_num',
-        video_data=None,
+    data,
+    sum_fields=("lick_count_window", "blink_count_window"),
+    session_marker="date",
+    block_field="block",
+    tnum_field="trial_num",
+    reward_trigger='Reward Trigger',
+    air_trigger='Airpuff Trigger',
+    trace_trigger='Trace End',
+    delay_off_field='Delay Off',
+    eye_mask_field="eye_masked_xy",
+    eye_map_field="eye_map_xy",
+    video_data=None,
+    sum_windows=None,
 ):
     for sf in sum_fields:
-        new_field = 'sum_' + sf
+        new_field = "sum_" + sf
         data[new_field] = list(np.sum(sf_i) for sf_i in data[sf])
-    data['positive_valence'] = data['reward_prob'] > 0
+    data["positive_valence"] = data["reward"] > 0
     pws = []
     pdiffs = []
-    block_tnum = data[tnum_field][:]
+    delay_off = np.zeros(len(data))
+    delay_off[:] = np.nan
+    tr_mask = ~pd.isna(data[trace_trigger])
+    delay_off[tr_mask] = data[trace_trigger][tr_mask]
+    rew_mask = ~pd.isna(data[reward_trigger])
+    delay_off[rew_mask] = data[reward_trigger][rew_mask]
+    air_mask = ~pd.isna(data[air_trigger])
+    delay_off[air_mask] = data[air_trigger][air_mask]
+    data[delay_off_field] = delay_off
+    block_tnum = np.copy(data[tnum_field])
     for u_sess in np.unique(data[session_marker]):
         s_mask = data[session_marker] == u_sess
         for block in np.unique(data[block_field]):
@@ -116,10 +242,21 @@ def preprocess_data(
             mask = np.logical_and(s_mask, b_mask)
             sub = np.min(data[tnum_field][mask]) - 1
             block_tnum[mask] = block_tnum[mask] - sub
-    data['block_trial_num'] = block_tnum
+    data["block_trial_num"] = block_tnum
+
+    data = _mask_eyes(data, eye_mask_field, eye_map_field)
+
+    chose_side = np.ones(len(data))
+    choice_mask = data["choice_trial"] == 1
+    choice_mask = np.logical_and(choice_mask, data["fractal_chosen"] != "_error")
+    chose_2 = data['fractal_chosen'] == data['stimuli_name_2']
+    chose_side += chose_2
+    chose_side[~choice_mask] = 0
+    data["chose_side"] = chose_side
+
     if video_data is not None:
         data = _add_video_data(data, video_data)
-    for index, row in data[['pupil_window', 'pupil_pre_CS']].iterrows():
+    for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
         (pw, pre) = row
         if np.all(np.isnan(pw)):
             pws.append(np.nan)
@@ -129,6 +266,6 @@ def preprocess_data(
             pw_i[pw_i == 0] = np.nan
             pws.append(pw_i)
             pdiffs.append(np.nanmean(pw_i[-500:]) - np.nanmean(pre))
-    data['pupil_diff'] = pdiffs
-    data['pupil_window_nan'] = pws
+    data["pupil_diff"] = pdiffs
+    data["pupil_window_nan"] = pws
     return data
