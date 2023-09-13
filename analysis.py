@@ -317,6 +317,7 @@ def decode_valence(
     compute_metrics=None,
     kernel="rbf",
     num_frames=None,
+    use_ica=False,
     **kwargs
 ):
     if model_kwargs is None:
@@ -332,7 +333,9 @@ def decode_valence(
     nan_mask = _make_nan_mask(X)
     train_mask, test_mask = mask_func(data, *args, existing_mask=nan_mask, **kwargs)
 
-    pipe = na.make_model_pipeline(model=model, pca=pre_pca, **model_kwargs)
+    pipe = na.make_model_pipeline(
+        model=model, pca=pre_pca, use_ica=use_ica, **model_kwargs,
+    )
 
     cv = shuffler(n_cv, test_size=test_frac)
     out = skms.cross_validate(

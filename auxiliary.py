@@ -30,19 +30,51 @@ video_name_template = (
     "_(?P<trial>[0-9]+).?"
 )
 video_template = video_name_template + "\.mp4"
+marker_name_template = (
+    "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
+    "_(?P<trial>[0-9]+).*_filtered"
+)
+marker_template = marker_name_template + "\.csv"
 
 
-def interpret_video_file(fl, file_template=video_template):
+def _interpret_file(
+    fl,
+    groups=("date", "trial", "cam", "monkey"),
+    file_template=marker_template
+):
     m = re.match(file_template, fl)
     if m is not None:
-        date = m.group("date")
-        trial = m.group("trial")
-        cam = m.group("cam")
-        monkey = m.group("monkey")
-        out = (date, trial, cam, monkey)
+        out = tuple(m.group(g) for g in groups)
     else:
         out = None
     return out
+
+
+def interpret_video_file(fl, file_template=video_template):
+    return _interpret_file(
+        fl, file_template=file_template, groups=("date", "trial", "cam", "monkey"),
+    )
+
+
+def interpret_marker_file(*args, **kwargs):
+    return _interpret_file(*args, **kwargs)
+
+
+def _marker_generator(folder, file_template=marker_template, max_load=np.inf,
+                      header_lines=(0, 1, 2)):
+    fls = os.listdir(folder)
+    loaded = 0
+    for fl in fls:
+        out = interpret_marker_file(fl, file_template=file_template)
+        if out is not None:
+            markers = pd.read_csv(
+                os.path.join(folder, fl),
+                header=list(header_lines)
+            )
+            loaded += 1
+            yield out, markers
+        if loaded >= max_load:
+            break
 
 
 def _video_generator(folder, file_template=video_template, max_load=np.inf):
@@ -60,6 +92,21 @@ def _video_generator(folder, file_template=video_template, max_load=np.inf):
             yield (date, trial, cam, monkey), video
         if loaded >= max_load:
             break
+
+
+def process_markers(
+    folder,
+    file_template=marker_template,
+    max_load=np.inf,
+):
+    markers_all = {}
+    for info, markers in _marker_generator(folder, file_template=file_template,
+                                           max_load=max_load):
+        date, trial, cam, monkey = info
+        curr = markers_all.get((date, trial, monkey), {})
+        curr[cam] = markers.to_numpy()
+        markers_all[(date, monkey, trial)] = curr
+    return markers_all
 
 
 def process_videos(
@@ -98,7 +145,6 @@ def process_videos(
     cam_pca : dictionary
         Dictionary with keys corresponding to cameras and values coresponding to
         the IncrementalPCA object for that camera.
-    
     """
     videos = {}
     cam_pca = {}
@@ -131,30 +177,46 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                     window_start='Trace Start', window_end='Delay Off',
                     video_times_key='cam{}_trial_time',
                     video_file_key="cam1_trial_name",
-                    vn_template=video_name_template):
+                    vn_template=video_name_template,
+                    marker_data=None, marker_key="markers_{}"):
     cams = list(video_data[list(video_data.keys())[0]].keys())
     new_dict = {cam: [] for cam in cams}
+    new_marker_dict = {cam: [] for cam in cams}
+    if marker_data is None:
+        marker_data = {}
     for _, row in data.iterrows():
-        out = interpret_video_file(row[video_file_key], vn_template)
-        date, trial, _, monkey = out
-        # vids = video_data[(date, monkey)].get(str(trial))
+        monkey = row["subject"]
+        trial = row["trial_num"]
+        date = row["date"]
+        # out = interpret_video_file(row[video_file_key], vn_template)
+        # date, trial, _, monkey = out
         vid = video_data.get((date, monkey, str(trial)))
+        markers_trl = marker_data.get((date, monkey, str(trial)), {})
 
         row_bounds = (row[window_start], row[window_end])
         if vid is not None and not (pd.isnull(row_bounds[0])
                                     or pd.isnull(row_bounds[1])):
             for cam, vid in vid.items():
+                markers = markers_trl.get(cam)
                 vid_list = new_dict.get(cam, [])
+                marker_list = new_marker_dict.get(cam, [])
                 video_times = row[video_times_key.format(cam)]
                 if video_times.shape[0] == vid.shape[0]:
                     mask = np.logical_and(video_times >= row_bounds[0],
                                           video_times < row_bounds[1])
                     vid_list.append(vid[mask])
+                    if markers is not None:
+                        marker_list.append(markers[mask])
+                    else:
+                        marker_list.append(None)
+
                 else:
                     print(video_times.shape[0], vid.shape[0])
                     print('mismatched length', trial)
                     vid_list.append(None)
+                    marker_list.append(None)
                 new_dict[cam] = vid_list
+                new_marker_dict[cam] = marker_list
         else:
             if vid is None:
                 print("missing vid", trial)
@@ -164,8 +226,13 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 vid_list = new_dict.get(cam, [])
                 vid_list.append(None)
                 new_dict[cam] = vid_list
+
+                marker_list = new_marker_dict.get(cam, [])
+                marker_list.append(None)
+                new_marker_dict[cam] = marker_list
     for k, d in new_dict.items():
         data[video_key.format(k)] = d
+        data[marker_key.format(k)] = new_marker_dict[k]
     return data
 
 
@@ -217,6 +284,7 @@ def preprocess_data(
     eye_mask_field="eye_masked_xy",
     eye_map_field="eye_map_xy",
     video_data=None,
+    marker_data=None,
     sum_windows=None,
 ):
     for sf in sum_fields:
@@ -255,7 +323,7 @@ def preprocess_data(
     data["chose_side"] = chose_side
 
     if video_data is not None:
-        data = _add_video_data(data, video_data)
+        data = _add_video_data(data, video_data, marker_data=marker_data)
     for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
         (pw, pre) = row
         if np.all(np.isnan(pw)):
