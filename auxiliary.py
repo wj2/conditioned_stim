@@ -25,10 +25,15 @@ def _dim_red_video(video, use_pca=None, keep_pca=0.99):
     return use_pca, use_pca.transform(video)
 
 
+# aragorn_230929_10_e3v831bDLC_resnet50_230929_aragorn_body_2Oct23shuffle1_1030000_filtered_labeled.mp4
 video_name_template = (
-    "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
-    "_(?P<trial>[0-9]+).?"
+    "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)"
+    ".?"
 )
+# video_name_template = (
+#     "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
+#     "_(?P<trial>[0-9]+).?"
+# )
 video_template = video_name_template + "\.mp4"
 marker_name_template = (
     "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
