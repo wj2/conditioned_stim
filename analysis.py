@@ -15,6 +15,7 @@ default_predictors = (
     "pupil_raster_window_avg",
     "blink_duration_window",
     "eye_distance",
+    "eye_map_xy",
 )
 history_predictors = (
     "reward_1_back",
@@ -27,6 +28,12 @@ history_predictors = (
     "airpuff_3_back",
     "airpuff_4_back",
     "airpuff_5_back",
+)
+video_predictors = (
+    "video_e3v8360", # face_1
+    "video_e3v83d6", # face_2
+    "video_e3v83ad", # body_1
+    "video_e3v831b", # body_2
 )
 
 
@@ -191,13 +198,24 @@ def get_dec_dims(data, pred='video_1', n_inds=20, ret_data=False, **kwargs):
     return out
 
 
+def _check_list_non_nan_shape(cg):
+    x = list(filter(lambda x: x is not None, cg))
+    flag = u.check_list(x[0])
+    if flag:
+        shape = x[0].shape
+    else:
+        shape = None
+    return flag, shape
+
+
 def _flatten_X(X, last_vid_inds=None):
     col_groups = []
     for i in range(X.shape[1]):
         cg = X[:, i]
-        if u.check_list(cg[0]):
-            if len(cg[0].shape) > 1:
-                vid_shape = cg[0].shape
+        flag, cg_shape = _check_list_non_nan_shape(cg)
+        if flag:
+            if len(cg_shape) > 1:
+                vid_shape = cg_shape
                 assert len(vid_shape) > 1
                 if last_vid_inds is None:
                     lvi_i = np.min(
@@ -312,7 +330,7 @@ def decode_valence(
     test_trls=None,
     keep_keys=None,
     target_func=_binary_valence,
-    pre_pca=1,
+    pre_pca=None,
     model_kwargs=None,
     compute_metrics=None,
     kernel="rbf",
@@ -433,3 +451,25 @@ def decode_valence_all(*args, dec_dict=default_dec_dict, **kwargs):
         full_kwargs.update(kwargs)
         out_dict[k] = func(*args, **full_kwargs)
     return out_dict
+
+
+predictor_dict = {
+    "behavioral": default_predictors,
+    "behavioral_history": default_predictors[2:],
+    "video": video_predictors,
+    "face_video": video_predictors[:2],
+    "body_video": video_predictors[2:],
+}
+
+
+def decode_feature_importance(
+        data, pred_groups=predictor_dict, **kwargs,
+):
+    all_preds = set(np.concatenate(list(pred_groups.values())))
+    pred_dict = dict(all_=all_preds, **pred_groups)
+    out_dict = {}
+    for i, (k, v) in enumerate(pred_dict.items()):
+        dd_nv = decode_valence_all(data, predictors=v, **kwargs)
+        out_dict[k] = dd_nv
+    return out_dict
+
