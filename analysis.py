@@ -455,7 +455,6 @@ def decode_valence_all(*args, dec_dict=default_dec_dict, **kwargs):
 
 predictor_dict = {
     "behavioral": default_predictors,
-    "behavioral_history": default_predictors[2:],
     "video": video_predictors,
     "face_video": video_predictors[:2],
     "body_video": video_predictors[2:],
