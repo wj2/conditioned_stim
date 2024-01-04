@@ -29,8 +29,18 @@ if __name__ == '__main__':
     else:
         video_folder = args.video_folder
 
-    vs = csx.process_videos(video_folder)
+    try:
+        vs = csx.process_videos(video_folder)
+    except Exception as e:
+        print("loading videos failed, with {}".format(e))
+        vs = None
+    try:
+        ms = csx.process_markers(video_folder)
+    except Exception as e:
+        print("loading markers failed, with {}".format(e))
+        ms = None
+    
     data = csx.load_data(data_file, folder='')
-    data = csx.preprocess_data(data, video_data=vs)
+    data = csx.preprocess_data(data, video_data=vs, marker_data=ms)
 
     pickle.dump(data, open(args.output_file, 'wb'))
