@@ -3,7 +3,7 @@ import argparse
 import os
 import pickle
 
-import conditioned_stimulus.auxiliary as csx
+import auxiliary as csx
 
 
 def create_parser():
@@ -29,18 +29,16 @@ if __name__ == '__main__':
     else:
         video_folder = args.video_folder
 
-    try:
-        vs = csx.process_videos(video_folder)
-    except Exception as e:
-        print("loading videos failed, with {}".format(e))
-        vs = None
-    try:
-        ms = csx.process_markers(video_folder)
-    except Exception as e:
-        print("loading markers failed, with {}".format(e))
-        ms = None
-    
+    print(f'Loading videos from {video_folder}')
+    print(f'  number of videos: {len(os.listdir(video_folder))}')
+    vs = csx.process_videos(video_folder)
+    print('  Done.')
+    print(f'Loading data from {data_file}')
     data = csx.load_data(data_file, folder='')
-    data = csx.preprocess_data(data, video_data=vs, marker_data=ms)
-
+    print('  Done.')
+    print('Preprocessing data')
+    data = csx.preprocess_data(data, video_data=vs)
+    print('  Done.')
+    print(f'Saving data to {args.output_file}')
     pickle.dump(data, open(args.output_file, 'wb'))
+    print('  Done')

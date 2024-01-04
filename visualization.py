@@ -33,34 +33,6 @@ def plot_dec_dict(dec_dict, axs=None, fwid=3, **kwargs):
     return axs
 
 
-def plot_fi_dict(fi_dict, axs=None, fwid=3, color_dict=None, minor=.2, **kwargs):
-    if color_dict is None:
-        color_dict = {}
-    if axs is None:
-        n_plots = len(list(fi_dict.values())[0])
-        f, axs = plt.subplots(1, n_plots, figsize=(n_plots*fwid, fwid), sharey="all")
-    labels = []
-    prop_cycle = plt.rcParams['axes.prop_cycle']
-    color_cycle = prop_cycle.by_key()['color']
-    for j, (label, dec_dict) in enumerate(fi_dict.items()):
-        labels.append(label)
-        color = color_dict.get(label, [color_cycle[j]])
-        for i, (k, kd) in enumerate(dec_dict.items()):
-            axs[i].set_title(k)
-            pd = gpl.violinplot([kd["test_score"]], [j], ax=axs[i], color=color)
-            color = pd["cmedians"].get_color()
-            tms = kd.get('test_mask_score')
-            if tms is not None:
-                gpl.violinplot([tms], [j + minor], ax=axs[i], color=color)
-            if j == len(fi_dict) - 1:
-                gpl.add_hlines(.5, axs[i])
-    for i, ax in enumerate(axs):
-        ax.set_xticks(range(len(labels)))
-        ax.set_xticklabels(labels, rotation=90)
-        gpl.clean_plot(ax, i)
-    return axs    
-
-
 def plot_video(vid, fax=None):
     if fax is None:
         fax = plt.subplots(1, 1)
