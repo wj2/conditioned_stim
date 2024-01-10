@@ -3,7 +3,7 @@ import argparse
 import pickle
 import numpy as np
 
-import conditioned_stimulus.auxiliary as csx
+import auxiliary as csx
 
 
 def create_parser():
