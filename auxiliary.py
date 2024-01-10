@@ -99,7 +99,6 @@ def _video_generator(folder, file_template=video_template, max_load=np.inf):
         if loaded >= max_load:
             break
 
-
 def process_markers(
     folder,
     file_template=marker_template,
@@ -192,14 +191,16 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
         marker_data = {}
     for _, row in data.iterrows():
         monkey = row["subject"].lower()
-        trial = row["trial_num"]
+        # videos are saved with index 0 but trial_num is indexed at 1
+        trial = row["trial_num"] - 1
         date = row["date"]
         # out = interpret_video_file(row[video_file_key], vn_template)
         # date, trial, _, monkey = out
         vid = video_data.get((date, monkey, str(trial)))
         markers_trl = marker_data.get((date, monkey, str(trial)), {})
         row_bounds = (row[window_start], row[window_end])
-        print('Trial {}'.format(trial))
+        print('  Trial {}'.format(trial))
+        print(f'    {vid}')
         if vid is not None and not (pd.isnull(row_bounds[0])
                                     or pd.isnull(row_bounds[1])):
             for cam, vid in vid.items():
@@ -224,16 +225,19 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 vid_list.append(vid)
                 if markers is not None:
                     marker_list.append(markers)
+                    print('    cam {} markers added'.format(cam))
                 else:
                     marker_list.append(None)
+                    print('    cam {} markers missing'.format(cam))
                 '''end'''
                 new_dict[cam] = vid_list
                 new_marker_dict[cam] = marker_list
+                print('    cam {} video data added'.format(cam))
         else:
             if vid is None:
-                print('  missing vid')
+                print('    missing vid')
             else:
-                print('  null bounds')
+                print('    null bounds')
             for cam in new_dict.keys():
                 vid_list = new_dict.get(cam, [])
                 vid_list.append(None)
@@ -242,6 +246,12 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 marker_list.append(None)
                 new_marker_dict[cam] = marker_list
     for k, d in new_dict.items():
+        print('  cam {} has {} vids and {} markers'.format(k, len(d), len(new_marker_dict[k])))
+        if len(d) != len(data):
+            print('    session and videos mismatched lengths')
+            new_dict_keys = list(new_dict.keys())
+            for k in new_dict_keys:
+                print('    {}: {}'.format(k, len(new_dict[k])))
         data[video_key.format(k)] = d
         data[marker_key.format(k)] = new_marker_dict[k]
     return data
