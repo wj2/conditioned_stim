@@ -160,7 +160,7 @@ def process_videos(
         use_pca = cam_pca.get(cam, skd.IncrementalPCA(keep_pca))
         use_pca.partial_fit(video)
         cam_pca[cam] = use_pca
-        print(info)
+        print(f'  trial {trial}, monkey {monkey}, cam {cam}, ')
     print('-----')
     for info, video in _video_generator(folder, file_template=file_template,
                                         max_load=max_load):
@@ -191,7 +191,8 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
         marker_data = {}
     for _, row in data.iterrows():
         monkey = row["subject"]
-        trial = row["trial_num"]
+        # videos are saved with index 0 but trial_num is indexed at 1
+        trial = row["trial_num"] - 1
         date = row["date"]
         # out = interpret_video_file(row[video_file_key], vn_template)
         # date, trial, _, monkey = out
@@ -199,29 +200,39 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
         markers_trl = marker_data.get((date, monkey, str(trial)), {})
 
         row_bounds = (row[window_start], row[window_end])
+        print('  Trial {}'.format(trial))
+        print(f'    {vid}')
         if vid is not None and not (pd.isnull(row_bounds[0])
                                     or pd.isnull(row_bounds[1])):
             for cam, vid in vid.items():
                 markers = markers_trl.get(cam)
                 vid_list = new_dict.get(cam, [])
                 marker_list = new_marker_dict.get(cam, [])
-                video_times = row[video_times_key.format(cam)]
-                if video_times.shape[0] == vid.shape[0]:
-                    mask = np.logical_and(video_times >= row_bounds[0],
-                                          video_times < row_bounds[1])
-                    vid_list.append(vid[mask])
-                    if markers is not None:
-                        marker_list.append(markers[mask])
-                    else:
-                        marker_list.append(None)
-
+                vid_list.append(vid)
+                if markers is not None:
+                    marker_list.append(markers)
+                    print('    cam {} markers added'.format(cam))
                 else:
-                    print(video_times.shape[0], vid.shape[0])
-                    print('mismatched length', trial)
-                    vid_list.append(None)
                     marker_list.append(None)
+                    print('    cam {} markers missing'.format(cam))
+                # video_times = row[video_times_key.format(cam)]
+                # if video_times.shape[0] == vid.shape[0]:
+                #     mask = np.logical_and(video_times >= row_bounds[0],
+                #                           video_times < row_bounds[1])
+                #     vid_list.append(vid[mask])
+                #     if markers is not None:
+                #         marker_list.append(markers[mask])
+                #     else:
+                #         marker_list.append(None)
+
+                # else:
+                #     print(video_times.shape[0], vid.shape[0])
+                #     print('mismatched length', trial)
+                #     vid_list.append(None)
+                #     marker_list.append(None)
                 new_dict[cam] = vid_list
                 new_marker_dict[cam] = marker_list
+                print('    cam {} video data added'.format(cam))
         else:
             if vid is None:
                 print("missing vid", trial)
@@ -236,6 +247,14 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 marker_list.append(None)
                 new_marker_dict[cam] = marker_list
     for k, d in new_dict.items():
+        print('  cam {} has {} vids and {} markers'.format(
+            k, len(d), len(new_marker_dict[k]))
+              )
+        if len(d) != len(data):
+            print('    session and videos mismatched lengths')
+            new_dict_keys = list(new_dict.keys())
+            for k in new_dict_keys:
+                print('    {}: {}'.format(k, len(new_dict[k])))
         data[video_key.format(k)] = d
         data[marker_key.format(k)] = new_marker_dict[k]
     return data
