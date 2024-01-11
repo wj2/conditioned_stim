@@ -22,23 +22,33 @@ if __name__ == '__main__':
 
     # session data
     data_file = args.data_file
+    # video data
+    print(f'Loading videos from {video_folder}')
+    print(f'  number of videos: {len(os.listdir(video_folder))}')
+    max_load=np.inf
+    max_load=1
     if args.video_folder is None:
         path, _ = os.path.split(data_file)
         video_folder = os.path.join(path, 'video_files')
     else:
         video_folder = args.video_folder
     print(f'Loading data from {data_file}')
+    try:
+        vs = csx.process_videos(video_folder, max_load=max_load)
+        print('  Done.')
+    except Exception as e:
+        print("loading videos failed, with {}".format(e))
+        vs = None
+    try:
+        ms = csx.process_markers(video_folder, max_load=max_load)
+    except Exception as e:
+        print("loading markers failed, with {}".format(e))
+        ms = None
+    
     data = csx.load_data(data_file, folder='')
     print(f'  number of trials: {len(data)}')
     print(f'  Done.')
 
-    # video data
-    print(f'Loading videos from {video_folder}')
-    print(f'  number of videos: {len(os.listdir(video_folder))}')
-    max_load=np.inf
-    max_load=1
-    vs = csx.process_videos(video_folder, max_load=max_load)
-    print('  Done.')
 
     # preprocess data
     print('Preprocessing data')
