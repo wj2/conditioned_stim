@@ -29,6 +29,7 @@ if __name__ == '__main__':
     else:
         video_folder = args.video_folder
 
+    print(video_folder)
     try:
         vs = csx.process_videos(video_folder)
     except Exception as e:
