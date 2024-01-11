@@ -84,8 +84,6 @@ def _marker_generator(folder, file_template=marker_template, max_load=np.inf,
 
 def _video_generator(folder, file_template=video_template, max_load=np.inf):
     fls = os.listdir(folder)
-    # sort fls by trial number
-    fls = sorted(fls, key=lambda x: int(x.split('_')[2]))
     loaded = 0
     for fl in fls:
         out = interpret_video_file(fl, file_template)
@@ -93,11 +91,13 @@ def _video_generator(folder, file_template=video_template, max_load=np.inf):
             date, trial, cam, monkey = out
             video = skv_io.vread(os.path.join(folder, fl))
             video = skv_u.rgb2gray(video)
+            print(video.shape)
             video = np.reshape(video, (video.shape[0], -1))
             loaded += 1
             yield (date, trial, cam, monkey), video
         if loaded >= max_load:
             break
+
 
 def process_markers(
     folder,
@@ -160,7 +160,7 @@ def process_videos(
         use_pca = cam_pca.get(cam, skd.IncrementalPCA(keep_pca))
         use_pca.partial_fit(video)
         cam_pca[cam] = use_pca
-        print(f'  trial {trial}, monkey {monkey}, cam {cam}, ')
+        print(info)
     print('-----')
     for info, video in _video_generator(folder, file_template=file_template,
                                         max_load=max_load):
@@ -190,71 +190,56 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
     if marker_data is None:
         marker_data = {}
     for _, row in data.iterrows():
-        monkey = row["subject"].lower()
-        # videos are saved with index 0 but trial_num is indexed at 1
-        trial = row["trial_num"] - 1
+        monkey = row["subject"]
+        trial = row["trial_num"]
         date = row["date"]
         # out = interpret_video_file(row[video_file_key], vn_template)
         # date, trial, _, monkey = out
         vid = video_data.get((date, monkey, str(trial)))
         markers_trl = marker_data.get((date, monkey, str(trial)), {})
+
         row_bounds = (row[window_start], row[window_end])
-        print('  Trial {}'.format(trial))
-        print(f'    {vid}')
         if vid is not None and not (pd.isnull(row_bounds[0])
                                     or pd.isnull(row_bounds[1])):
             for cam, vid in vid.items():
                 markers = markers_trl.get(cam)
                 vid_list = new_dict.get(cam, [])
                 marker_list = new_marker_dict.get(cam, [])
-                # video_times = row[video_times_key.format(cam)]
-                # if video_times.shape[0] == vid.shape[0]:
-                #     mask = np.logical_and(video_times >= row_bounds[0],
-                #                           video_times < row_bounds[1])
-                #     vid_list.append(vid[mask])
-                #     if markers is not None:
-                #         marker_list.append(markers[mask])
-                #     else:
-                #         marker_list.append(None)
-                # else:
-                #     print(video_times.shape[0], vid.shape[0])
-                #     print('mismatched length', trial)
-                #     vid_list.append(None)
-                #     marker_list.append(None)
-                '''RH added 11/22/2023'''
-                vid_list.append(vid)
-                if markers is not None:
-                    marker_list.append(markers)
-                    print('    cam {} markers added'.format(cam))
+                video_times = row[video_times_key.format(cam)]
+                if video_times.shape[0] == vid.shape[0]:
+                    mask = np.logical_and(video_times >= row_bounds[0],
+                                          video_times < row_bounds[1])
+                    vid_list.append(vid[mask])
+                    if markers is not None:
+                        marker_list.append(markers[mask])
+                    else:
+                        marker_list.append(None)
+
                 else:
+                    print(video_times.shape[0], vid.shape[0])
+                    print('mismatched length', trial)
+                    vid_list.append(None)
                     marker_list.append(None)
-                    print('    cam {} markers missing'.format(cam))
-                '''end'''
                 new_dict[cam] = vid_list
                 new_marker_dict[cam] = marker_list
-                print('    cam {} video data added'.format(cam))
         else:
             if vid is None:
-                print('    missing vid')
+                print("missing vid", trial)
             else:
-                print('    null bounds')
+                print("null bounds", trial)
             for cam in new_dict.keys():
                 vid_list = new_dict.get(cam, [])
                 vid_list.append(None)
                 new_dict[cam] = vid_list
+
                 marker_list = new_marker_dict.get(cam, [])
                 marker_list.append(None)
                 new_marker_dict[cam] = marker_list
     for k, d in new_dict.items():
-        print('  cam {} has {} vids and {} markers'.format(k, len(d), len(new_marker_dict[k])))
-        if len(d) != len(data):
-            print('    session and videos mismatched lengths')
-            new_dict_keys = list(new_dict.keys())
-            for k in new_dict_keys:
-                print('    {}: {}'.format(k, len(new_dict[k])))
         data[video_key.format(k)] = d
         data[marker_key.format(k)] = new_marker_dict[k]
     return data
+
 
 def _mask_eyes(
     data,
@@ -342,7 +327,6 @@ def preprocess_data(
     chose_side[~choice_mask] = 0
     data["chose_side"] = chose_side
 
-    video_data = video_data[0]
     if video_data is not None:
         data = _add_video_data(data, video_data, marker_data=marker_data)
     for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
@@ -354,10 +338,7 @@ def preprocess_data(
             pw_i = pw[:]
             pw_i[pw_i == 0] = np.nan
             pws.append(pw_i)
-            if len(pw_i) < 500:
-                pdiffs.append(np.nan)
-            else:
-                pdiffs.append(np.nanmean(pw_i[-500:]) - np.nanmean(pre))
+            pdiffs.append(np.nanmean(pw_i[-500:]) - np.nanmean(pre))
     data["pupil_diff"] = pdiffs
     data["pupil_window_nan"] = pws
     return data

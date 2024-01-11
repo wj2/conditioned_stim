@@ -1,8 +1,10 @@
-import os
+
 import argparse
+import os
 import pickle
-import numpy as np
-import auxiliary as csx
+
+import conditioned_stimulus.auxiliary as csx
+
 
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several autoencoders')
@@ -20,7 +22,6 @@ if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
 
-    # session data
     data_file = args.data_file
     # video data
     print(f'Loading videos from {video_folder}')
@@ -52,8 +53,8 @@ if __name__ == '__main__':
 
     # preprocess data
     print('Preprocessing data')
-    data = csx.preprocess_data(data, video_data=vs)
+    data = csx.preprocess_data(data, video_data=vs, marker_data=ms)
     print('  Done.')
     print(f'Saving data to {args.output_file}')
+
     pickle.dump(data, open(args.output_file, 'wb'))
-    print('  Done')
