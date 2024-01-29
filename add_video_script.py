@@ -3,6 +3,8 @@ import argparse
 import os
 import pickle
 
+import numpy as np
+
 import conditioned_stimulus.auxiliary as csx
 
 
@@ -24,8 +26,8 @@ if __name__ == '__main__':
 
     data_file = args.data_file
     # video data
-    print(f'Loading videos from {video_folder}')
-    print(f'  number of videos: {len(os.listdir(video_folder))}')
+    print(f'Loading videos from {args.video_folder}')
+    print(f'  number of videos: {len(os.listdir(args.video_folder))}')
     max_load=np.inf
     max_load=1
     if args.video_folder is None:
@@ -50,10 +52,9 @@ if __name__ == '__main__':
     print(f'  number of trials: {len(data)}')
     print(f'  Done.')
 
-
     # preprocess data
     print('Preprocessing data')
-    data = csx.preprocess_data(data, video_data=vs, marker_data=ms)
+    data = csx.preprocess_data(data, video_data=vs[0], marker_data=ms[0])
     print('  Done.')
     print(f'Saving data to {args.output_file}')
 
