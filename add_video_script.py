@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
     # preprocess data
     print('Preprocessing data')
-    data = csx.preprocess_data(data, video_data=vs[0], marker_data=ms[0])
+    data = csx.preprocess_data(data, video_data=vs[0], marker_data=ms)
     print('  Done.')
     print(f'Saving data to {args.output_file}')
 
