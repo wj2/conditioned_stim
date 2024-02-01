@@ -17,6 +17,10 @@ def create_parser():
     parser.add_argument('--video_folder', default=None,
                         help='path to video files -- will use "video_files" subfolder'
                         ' of the folder holding the data if not supplied')
+    parser.add_argument("--no_intermediate_videos", default=True, action="store_false")
+    parser.add_argument("--video_save_file", default=None)
+    parser.add_argument("--max_load", default=np.inf, type=float)
+    parser.add_argument("--ignore_saved", default=False, action="store_true")
     return parser
 
 
@@ -28,26 +32,32 @@ if __name__ == '__main__':
     # video data
     print(f'Loading videos from {args.video_folder}')
     print(f'  number of videos: {len(os.listdir(args.video_folder))}')
-    max_load=np.inf
-    max_load=1
+    max_load = args.max_load
     if args.video_folder is None:
         path, _ = os.path.split(data_file)
         video_folder = os.path.join(path, 'video_files')
     else:
         video_folder = args.video_folder
-    print(f'Loading data from {data_file}')
-    try:
-        vs = csx.process_videos(video_folder, max_load=max_load)
-        print('  Done.')
-    except Exception as e:
-        print("loading videos failed, with {}".format(e))
-        vs = None
-    try:
-        ms = csx.process_markers(video_folder, max_load=max_load)
-    except Exception as e:
-        print("loading markers failed, with {}".format(e))
-        ms = None
-    
+    if args.video_save_file is None:
+        folder = os.path.split(args.output_file)[0]
+        vsf = os.path.join(folder, "processed-videos.pkl")
+    if os.path.isfile(vsf) and not args.ignore_saved:
+        vs, ms = pickle.load(open(vsf, "rb"))
+    else:
+        print(f'Loading data from {data_file}')
+        try:
+            vs = csx.process_videos(video_folder, max_load=max_load)
+            print('  Done.')
+        except Exception as e:
+            print("loading videos failed, with {}".format(e))
+            vs = None
+        try:
+            ms = csx.process_markers(video_folder, max_load=max_load)
+        except Exception as e:
+            print("loading markers failed, with {}".format(e))
+            ms = None
+        pickle.dump((vs, ms), open(vsf, "wb"))
+
     data = csx.load_data(data_file, folder='')
     print(f'  number of trials: {len(data)}')
     print(f'  Done.')

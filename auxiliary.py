@@ -28,16 +28,21 @@ def _dim_red_video(video, use_pca=None, keep_pca=0.99):
 # aragorn_230929_10_e3v831bDLC_resnet50_230929_aragorn_body_2Oct23shuffle1_1030000_filtered_labeled.mp4
 video_name_template = (
     "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)"
-    ".?"
+    ".*"
 )
 # video_name_template = (
 #     "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
 #     "_(?P<trial>[0-9]+).?"
 # )
 video_template = video_name_template + "\.mp4"
+
+# marker_name_template = (
+#    "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
+#      "_(?P<trial>[0-9]+).*_filtered"
+# )
 marker_name_template = (
-    "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
-    "_(?P<trial>[0-9]+).*_filtered"
+    "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)"
+    ".*_filtered"
 )
 marker_template = marker_name_template + "\.csv"
 
@@ -72,6 +77,7 @@ def _marker_generator(folder, file_template=marker_template, max_load=np.inf,
     for fl in fls:
         out = interpret_marker_file(fl, file_template=file_template)
         if out is not None:
+            print('marker', fl)
             markers = pd.read_csv(
                 os.path.join(folder, fl),
                 header=list(header_lines)
