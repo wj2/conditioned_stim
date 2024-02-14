@@ -29,6 +29,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     data_file = args.data_file
+    video_folder = args.video_folder
+
     # video data
     print(f'Loading videos from {args.video_folder}')
     print(f'  number of videos: {len(os.listdir(args.video_folder))}')

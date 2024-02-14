@@ -190,6 +190,7 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                     video_file_key="cam1_trial_name",
                     vn_template=video_name_template,
                     marker_data=None, marker_key="markers_{}"):
+    print(video_data.keys())
     cams = np.concatenate(list(list(vdv.keys()) for vdv in video_data.values()))
     cams = np.unique(cams)
     new_dict = {cam: [] for cam in cams}
@@ -203,6 +204,7 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
         date = row["date"]
         # out = interpret_video_file(row[video_file_key], vn_template)
         # date, trial, _, monkey = out
+        print(date, monkey, str(trial))
         vid_entry = video_data.get((date, monkey, str(trial)))
         markers_trl = marker_data.get((date, monkey, str(trial)), {})
 
@@ -264,6 +266,8 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
             new_dict_keys = list(new_dict.keys())
             for k in new_dict_keys:
                 print('    {}: {}'.format(k, len(new_dict[k])))
+        len_d = len(list(x for x in d if x is not None))
+        print(f'  {len_d}')
         data[video_key.format(k)] = d
         data[marker_key.format(k)] = new_marker_dict[k]
     return data
@@ -357,6 +361,8 @@ def preprocess_data(
 
     if video_data is not None:
         data = _add_video_data(data, video_data, marker_data=marker_data)
+        len_d = len(list(x for x in data['video_e3v83d6'] if x is not None))
+        print(f'  {len_d}')
     for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
         (pw, pre) = row
         if np.all(np.isnan(pw)):
