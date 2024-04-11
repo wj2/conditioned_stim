@@ -1,4 +1,5 @@
 import os
+import time
 import pickle as p
 import numpy as np
 import skvideo.io as skv_io
@@ -90,7 +91,7 @@ def _marker_generator(folder, file_template=marker_template, max_load=np.inf,
             break
 
 
-def _video_generator(folder, file_template=video_template, max_load=np.inf):
+def _video_generator(folder, file_template=video_template, max_load=np.inf, reduce=2):
     fls = os.listdir(folder)
     loaded = 0
     for fl in fls:
@@ -100,10 +101,14 @@ def _video_generator(folder, file_template=video_template, max_load=np.inf):
         out = interpret_video_file(fl, file_template)
         if out is not None:
             date, trial, cam, monkey = out
+            start_time = time.time()
             video = skv_io.vread(os.path.join(folder, fl))
             video = skv_u.rgb2gray(video)
+            video = video[:, ::reduce, ::reduce]
             print(video.shape)
             video = np.reshape(video, (video.shape[0], -1))
+            end_time = time.time()
+            print(f'     video {fl} loaded in {round(end_time - start_time, 2)}s')
             loaded += 1
             yield (date, trial, cam, monkey), video
         if loaded >= max_load:
@@ -165,14 +170,18 @@ def process_videos(
     """
     videos = {}
     cam_pca = {}
+    # time each for loop
     for info, video in _video_generator(folder, file_template=file_template,
                                         max_load=max_load):
+        time_start = time.time()
         date, trial, cam, monkey = info
-
         use_pca = cam_pca.get(cam, skd.IncrementalPCA(keep_pca))
-        use_pca.partial_fit(video)
+        use_pca.fit(video)
         cam_pca[cam] = use_pca
         print(f'  trial {trial}, monkey {monkey}, cam {cam}, ')
+        # get time for each loop
+        time_end = time.time()
+        print(f'    pca time: {round(time_end - time_start, 2)}s')
     print('-----')
     for info, video in _video_generator(folder, file_template=file_template,
                                         max_load=max_load):

@@ -2,9 +2,10 @@ import os
 import pickle
 import argparse
 import numpy as np
+import warnings
 import conditioned_stimulus.auxiliary as csx
 # surpress RuntimeWarning: mean of empty slice
-np.seterr(divide='ignore', invalid='ignore')
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several autoencoders')
