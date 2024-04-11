@@ -15,7 +15,9 @@ FIG_FOLD = "conditioned_stimulus/figs/"
 
 def load_data(fl, folder=DATA_FOLD, key='data_frame'):
     fp = os.path.join(folder, fl)
-    return p.load(open(fp, "rb"))[key]
+    #  No module named 'pandas.core.indexes.numeric'
+    # return p.load(open(fp, "rb"))[key]
+    return pd.read_pickle(fp)[key]
 
 
 def _dim_red_video(video, use_pca=None, keep_pca=0.99):
@@ -77,7 +79,7 @@ def _marker_generator(folder, file_template=marker_template, max_load=np.inf,
     for fl in fls:
         out = interpret_marker_file(fl, file_template=file_template)
         if out is not None:
-            print('marker', fl)
+            print(f'  marker {fl}')
             markers = pd.read_csv(
                 os.path.join(folder, fl),
                 header=list(header_lines)
@@ -92,6 +94,9 @@ def _video_generator(folder, file_template=video_template, max_load=np.inf):
     fls = os.listdir(folder)
     loaded = 0
     for fl in fls:
+        if 'filtered' in fl:
+            print(f'     skipping {fl}')
+            continue
         out = interpret_video_file(fl, file_template)
         if out is not None:
             date, trial, cam, monkey = out
@@ -117,6 +122,7 @@ def process_markers(
         curr = markers_all.get((date, trial, monkey), {})
         curr[cam] = markers.to_numpy()
         markers_all[(date, monkey, trial)] = curr
+    print(f'  Markers found: {len(markers_all)}')
     return markers_all
 
 
@@ -190,6 +196,7 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                     video_file_key="cam1_trial_name",
                     vn_template=video_name_template,
                     marker_data=None, marker_key="markers_{}"):
+    print('Adding video data...')
     print(video_data.keys())
     cams = np.concatenate(list(list(vdv.keys()) for vdv in video_data.values()))
     cams = np.unique(cams)
@@ -210,7 +217,6 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
 
         row_bounds = (row[window_start], row[window_end])
         print('  Trial {}'.format(trial))
-        print(f'    {vid_entry}')
         if vid_entry is not None and not (pd.isnull(row_bounds[0])
                                     or pd.isnull(row_bounds[1])):
             for cam in cams:
@@ -348,7 +354,6 @@ def preprocess_data(
             sub = np.min(data[tnum_field][mask]) - 1
             block_tnum[mask] = block_tnum[mask] - sub
     data["block_trial_num"] = block_tnum
-
     data = _mask_eyes(data, eye_mask_field, eye_map_field)
 
     chose_side = np.ones(len(data))
@@ -358,11 +363,10 @@ def preprocess_data(
     chose_side += chose_2
     chose_side[~choice_mask] = 0
     data["chose_side"] = chose_side
-
+    if 'trial_num' not in data.columns:
+        data['trial_num'] = data['Trial'].astype(int)
     if video_data is not None:
-        data = _add_video_data(data, video_data, marker_data=marker_data)
-        len_d = len(list(x for x in data['video_e3v83d6'] if x is not None))
-        print(f'  {len_d}')
+        data = _add_video_data(data, video_data, window_start='Start Trial', window_end='End Trial', marker_data=marker_data)
     for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
         (pw, pre) = row
         if np.all(np.isnan(pw)):

@@ -1,12 +1,10 @@
-
-import argparse
 import os
 import pickle
-
+import argparse
 import numpy as np
-
 import conditioned_stimulus.auxiliary as csx
-
+# surpress RuntimeWarning: mean of empty slice
+np.seterr(divide='ignore', invalid='ignore')
 
 def create_parser():
     parser = argparse.ArgumentParser(description='fit several autoencoders')
@@ -23,7 +21,6 @@ def create_parser():
     parser.add_argument("--ignore_saved", default=False, action="store_true")
     return parser
 
-
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
@@ -33,7 +30,10 @@ if __name__ == '__main__':
 
     # video data
     print(f'Loading videos from {args.video_folder}')
-    print(f'  number of videos: {len(os.listdir(args.video_folder))}')
+    # count only .mp4 files with no 'labeled' in the name
+    num_videos = len([name for name in os.listdir(args.video_folder) if 
+                      name.endswith('.mp4') and 'labeled' not in name])
+    print(f'  number of videos: {num_videos}')
     max_load = args.max_load
     if args.video_folder is None:
         path, _ = os.path.split(data_file)
@@ -48,18 +48,20 @@ if __name__ == '__main__':
     else:
         print(f'Loading data from {data_file}')
         try:
+            print(f'Loading videos from {video_folder}')
             vs = csx.process_videos(video_folder, max_load=max_load)
-            print('  Done.')
+            print('Video processing done.')
         except Exception as e:
             print("loading videos failed, with {}".format(e))
-            vs = None
+            vs = [None]
         try:
+            print(f'Loading markers from {video_folder}')
             ms = csx.process_markers(video_folder, max_load=max_load)
         except Exception as e:
             print("loading markers failed, with {}".format(e))
             ms = None
         pickle.dump((vs, ms), open(vsf, "wb"))
-
+    print(f'Data loaded from {args.data_file}')
     data = csx.load_data(data_file, folder='')
     print(f'  number of trials: {len(data)}')
     print(f'  Done.')
