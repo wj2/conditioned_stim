@@ -95,7 +95,7 @@ def _video_generator(
     max_load=np.inf,
     reduce=2,
     data=None,
-    trial_key="trial_num",
+    trial_key="Trial",
     start_key=None,
     end_key=None,
     frame_key="cam_frames",
