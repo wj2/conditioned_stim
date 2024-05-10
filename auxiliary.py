@@ -6,6 +6,7 @@ import skvideo.io as skv_io
 import skvideo.utils as skv_u
 import sklearn.decomposition as skd
 import pandas as pd
+import sklearn.utils as sku
 
 import re
 
@@ -14,7 +15,7 @@ DATA_FOLD = "../data/conditioned_stim/"
 FIG_FOLD = "conditioned_stimulus/figs/"
 
 
-def load_data(fl, folder=DATA_FOLD, key='data_frame'):
+def load_data(fl, folder=DATA_FOLD, key="data_frame"):
     fp = os.path.join(folder, fl)
     #  No module named 'pandas.core.indexes.numeric'
     # return p.load(open(fp, "rb"))[key]
@@ -30,8 +31,7 @@ def _dim_red_video(video, use_pca=None, keep_pca=0.99):
 
 # aragorn_230929_10_e3v831bDLC_resnet50_230929_aragorn_body_2Oct23shuffle1_1030000_filtered_labeled.mp4
 video_name_template = (
-    "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)"
-    ".*"
+    "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)" ".*"
 )
 # video_name_template = (
 #     "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
@@ -51,9 +51,7 @@ marker_template = marker_name_template + "\.csv"
 
 
 def _interpret_file(
-    fl,
-    groups=("date", "trial", "cam", "monkey"),
-    file_template=marker_template
+    fl, groups=("date", "trial", "cam", "monkey"), file_template=marker_template
 ):
     m = re.match(file_template, fl)
     if m is not None:
@@ -65,7 +63,9 @@ def _interpret_file(
 
 def interpret_video_file(fl, file_template=video_template):
     return _interpret_file(
-        fl, file_template=file_template, groups=("date", "trial", "cam", "monkey"),
+        fl,
+        file_template=file_template,
+        groups=("date", "trial", "cam", "monkey"),
     )
 
 
@@ -73,42 +73,75 @@ def interpret_marker_file(*args, **kwargs):
     return _interpret_file(*args, **kwargs)
 
 
-def _marker_generator(folder, file_template=marker_template, max_load=np.inf,
-                      header_lines=(0, 1, 2)):
+def _marker_generator(
+    folder, file_template=marker_template, max_load=np.inf, header_lines=(0, 1, 2)
+):
     fls = os.listdir(folder)
     loaded = 0
     for fl in fls:
         out = interpret_marker_file(fl, file_template=file_template)
         if out is not None:
-            print(f'  marker {fl}')
-            markers = pd.read_csv(
-                os.path.join(folder, fl),
-                header=list(header_lines)
-            )
+            print(f"  marker {fl}")
+            markers = pd.read_csv(os.path.join(folder, fl), header=list(header_lines))
             loaded += 1
             yield out, markers
         if loaded >= max_load:
             break
 
 
-def _video_generator(folder, file_template=video_template, max_load=np.inf, reduce=2):
+def _video_generator(
+    folder,
+    file_template=video_template,
+    max_load=np.inf,
+    reduce=2,
+    data=None,
+    trial_key="trial_num",
+    start_key=None,
+    end_key=None,
+    frame_key="cam_frames",
+    trial_start_key="Start Trial",
+):
     fls = os.listdir(folder)
     loaded = 0
     for fl in fls:
-        if 'filtered' in fl:
-            print(f'     skipping {fl}')
+        if "filtered" in fl:
+            print(f"     skipping {fl}")
             continue
         out = interpret_video_file(fl, file_template)
         if out is not None:
             date, trial, cam, monkey = out
+
             start_time = time.time()
             video = skv_io.vread(os.path.join(folder, fl))
             video = skv_u.rgb2gray(video)
             video = video[:, ::reduce, ::reduce]
             print(video.shape)
+            if data is not None and start_key is not None and end_key is not None:
+                mask = data[trial_key].to_numpy() == int(trial) + 1
+                trl_data = data[mask]
+                start = trl_data[start_key].iloc[0]
+                end = trl_data[end_key].iloc[0]
+
+                if pd.isna(start) or pd.isna(end):
+                    print(f"skipping {fl} because {start} or {end} is nan")
+                    continue
+                frame_times = np.array(trl_data[frame_key].iloc[0])
+                trl_start = trl_data[trial_start_key].to_numpy()
+                frame_times = frame_times[frame_times > trl_start]
+                ft_len = frame_times.shape[0]
+                vid_len = video.shape[0]
+                if ft_len != vid_len:
+                    print(
+                        "frame times and video are different lengths: {}, {}".format(
+                            ft_len, vid_len
+                        )
+                    )
+                frame_times = frame_times[: video.shape[0]]
+                video_mask = np.logical_and(start <= frame_times, end > frame_times)
+                video = video[video_mask]
             video = np.reshape(video, (video.shape[0], -1))
             end_time = time.time()
-            print(f'     video {fl} loaded in {round(end_time - start_time, 2)}s')
+            print(f"     video {fl} loaded in {round(end_time - start_time, 2)}s")
             loaded += 1
             yield (date, trial, cam, monkey), video
         if loaded >= max_load:
@@ -121,14 +154,21 @@ def process_markers(
     max_load=np.inf,
 ):
     markers_all = {}
-    for info, markers in _marker_generator(folder, file_template=file_template,
-                                           max_load=max_load):
+    for info, markers in _marker_generator(
+        folder, file_template=file_template, max_load=max_load
+    ):
         date, trial, cam, monkey = info
         curr = markers_all.get((date, trial, monkey), {})
         curr[cam] = markers.to_numpy()
         markers_all[(date, monkey, trial)] = curr
-    print(f'  Markers found: {len(markers_all)}')
+    print(f"  Markers found: {len(markers_all)}")
     return markers_all
+
+
+def _batch_partial_fit(pca, video, batch_size=100):
+    for batch in sku.gen_batches(video.shape[0], batch_size):
+        pca.partial_fit(video[batch])
+    return pca
 
 
 def process_videos(
@@ -137,6 +177,9 @@ def process_videos(
     cams=("0", "1"),
     keep_pca=None,
     max_load=np.inf,
+    data=None,
+    epoch_start=None,
+    epoch_end=None,
 ):
     """
     Reduce the dimensionality of the videos, while keeping as much variance as
@@ -171,20 +214,33 @@ def process_videos(
     videos = {}
     cam_pca = {}
     # time each for loop
-    for info, video in _video_generator(folder, file_template=file_template,
-                                        max_load=max_load):
+    print(epoch_start, epoch_end)
+    for info, video in _video_generator(
+        folder,
+        file_template=file_template,
+        max_load=max_load,
+        data=data,
+        start_key=epoch_start,
+        end_key=epoch_end,
+    ):
         time_start = time.time()
         date, trial, cam, monkey = info
         use_pca = cam_pca.get(cam, skd.IncrementalPCA(keep_pca))
-        use_pca.fit(video)
+        use_pca = _batch_partial_fit(use_pca, video)
         cam_pca[cam] = use_pca
-        print(f'  trial {trial}, monkey {monkey}, cam {cam}, ')
+        print(f"  trial {trial}, monkey {monkey}, cam {cam}, ")
         # get time for each loop
         time_end = time.time()
-        print(f'    pca time: {round(time_end - time_start, 2)}s')
-    print('-----')
-    for info, video in _video_generator(folder, file_template=file_template,
-                                        max_load=max_load):
+        print(f"    pca time: {round(time_end - time_start, 2)}s")
+    print("-----")
+    for info, video in _video_generator(
+        folder,
+        file_template=file_template,
+        max_load=max_load,
+        data=data,
+        start_key=epoch_start,
+        end_key=epoch_end,
+    ):
         date, trial, cam, monkey = info
         use_pca = cam_pca.get(cam)
         video_dr = use_pca.transform(video)
@@ -199,13 +255,21 @@ def _ident_func(x, **kwargs):
     return x
 
 
-def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func,
-                    window_start='Trace Start', window_end='Delay Off',
-                    video_times_key='cam{}_trial_time',
-                    video_file_key="cam1_trial_name",
-                    vn_template=video_name_template,
-                    marker_data=None, marker_key="markers_{}"):
-    print('Adding video data...')
+def _add_video_data(
+    data,
+    video_data,
+    video_key="video_{}",
+    red_func=_ident_func,
+    window_start="Trace Start",
+    window_end="Delay Off",
+    video_times_key="cam{}_trial_time",
+    video_file_key="cam1_trial_name",
+    vn_template=video_name_template,
+    marker_data=None,
+    marker_key="markers_{}",
+    trial_key="Trial",
+):
+    print("Adding video data...")
     print(video_data.keys())
     cams = np.concatenate(list(list(vdv.keys()) for vdv in video_data.values()))
     cams = np.unique(cams)
@@ -216,7 +280,7 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
     for _, row in data.iterrows():
         monkey = row["subject"]
         # videos are saved with index 0 but trial_num is indexed at 1
-        trial = row["trial_num"] - 1
+        trial = row[trial_key] - 1
         date = row["date"]
         # out = interpret_video_file(row[video_file_key], vn_template)
         # date, trial, _, monkey = out
@@ -225,9 +289,10 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
         markers_trl = marker_data.get((date, monkey, str(trial)), {})
 
         row_bounds = (row[window_start], row[window_end])
-        print('  Trial {}'.format(trial))
-        if vid_entry is not None and not (pd.isnull(row_bounds[0])
-                                    or pd.isnull(row_bounds[1])):
+        print("  Trial {}".format(trial))
+        if vid_entry is not None and not (
+            pd.isnull(row_bounds[0]) or pd.isnull(row_bounds[1])
+        ):
             for cam in cams:
                 vid = vid_entry.get(cam, None)
                 markers = markers_trl.get(cam)
@@ -236,10 +301,10 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 vid_list.append(vid)
                 if markers is not None:
                     marker_list.append(markers)
-                    print('    cam {} markers added'.format(cam))
+                    print("    cam {} markers added".format(cam))
                 else:
                     marker_list.append(None)
-                    print('    cam {} markers missing'.format(cam))
+                    print("    cam {} markers missing".format(cam))
                 # video_times = row[video_times_key.format(cam)]
                 # if video_times.shape[0] == vid.shape[0]:
                 #     mask = np.logical_and(video_times >= row_bounds[0],
@@ -257,7 +322,7 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 #     marker_list.append(None)
                 new_dict[cam] = vid_list
                 new_marker_dict[cam] = marker_list
-                print('    cam {} video data added'.format(cam))
+                print("    cam {} video data added".format(cam))
         else:
             if vid_entry is None:
                 print("missing vid", trial)
@@ -272,17 +337,19 @@ def _add_video_data(data, video_data, video_key="video_{}", red_func=_ident_func
                 marker_list.append(None)
                 new_marker_dict[cam] = marker_list
     for k, d in new_dict.items():
-        print('  data frame has {} length'.format(len(data)))
-        print('  cam {} has {} vids and {} markers'.format(
-            k, len(d), len(new_marker_dict[k]))
-              )
+        print("  data frame has {} length".format(len(data)))
+        print(
+            "  cam {} has {} vids and {} markers".format(
+                k, len(d), len(new_marker_dict[k])
+            )
+        )
         if len(d) != len(data):
-            print('    session and videos mismatched lengths')
+            print("    session and videos mismatched lengths")
             new_dict_keys = list(new_dict.keys())
             for k in new_dict_keys:
-                print('    {}: {}'.format(k, len(new_dict[k])))
+                print("    {}: {}".format(k, len(new_dict[k])))
         len_d = len(list(x for x in d if x is not None))
-        print(f'  {len_d}')
+        print(f"  {len_d}")
         data[video_key.format(k)] = d
         data[marker_key.format(k)] = new_marker_dict[k]
     return data
@@ -308,12 +375,11 @@ def _mask_eyes(
         if pd.isna(start_t) or pd.isna(end_t):
             mask = np.ones_like(ts, dtype=bool)
         else:
-            mask = np.logical_and(ts > start_t,
-                                  ts < end_t)
+            mask = np.logical_and(ts > start_t, ts < end_t)
         masked_eyes.append(eye[mask])
         eye_map = np.histogramdd(
             eye[mask],
-            range=(eye_range,)*2,
+            range=(eye_range,) * 2,
             density=True,
         )
         eye_maps.append(eye_map[0].flatten())
@@ -329,10 +395,10 @@ def preprocess_data(
     session_marker="date",
     block_field="block",
     tnum_field="trial_num",
-    reward_trigger='Reward Trigger',
-    air_trigger='Airpuff Trigger',
-    trace_trigger='Trace End',
-    delay_off_field='Delay Off',
+    reward_trigger="Reward Trigger",
+    air_trigger="Airpuff Trigger",
+    trace_trigger="Trace End",
+    delay_off_field="Delay Off",
     eye_mask_field="eye_masked_xy",
     eye_map_field="eye_map_xy",
     video_data=None,
@@ -368,14 +434,20 @@ def preprocess_data(
     chose_side = np.ones(len(data))
     choice_mask = data["choice_trial"] == 1
     choice_mask = np.logical_and(choice_mask, data["fractal_chosen"] != "_error")
-    chose_2 = data['fractal_chosen'] == data['stimuli_name_2']
+    chose_2 = data["fractal_chosen"] == data["stimuli_name_2"]
     chose_side += chose_2
     chose_side[~choice_mask] = 0
     data["chose_side"] = chose_side
-    if 'trial_num' not in data.columns:
-        data['trial_num'] = data['Trial'].astype(int)
+    if "trial_num" not in data.columns:
+        data["trial_num"] = data["Trial"].astype(int)
     if video_data is not None:
-        data = _add_video_data(data, video_data, window_start='Start Trial', window_end='End Trial', marker_data=marker_data)
+        data = _add_video_data(
+            data,
+            video_data,
+            window_start="Start Trial",
+            window_end="End Trial",
+            marker_data=marker_data,
+        )
     for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
         (pw, pre) = row
         if np.all(np.isnan(pw)):
