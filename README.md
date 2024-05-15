@@ -17,7 +17,7 @@ python -m conditioned_stimulus.add_video_script "C:\Users\rober\Desktop\Analysis
 ### decoding_comparison_script
 
 ```
-python -m conditioned_stimulus.decoding_comparison_script C:\Users\rober\Desktop\Analysis_Pipeline\conditioned_stimulus\data\240110_aragorn_video.pkl --pre_pca 0.5python -m conditioned_stimulus.add_video_script C:/Users/rober/Desktop/Monkey-Emotions/240110_aragorn_generalization_behave.pkl -o 240110_aragorn_video.pkl --video_folder C:/Users/rober/Desktop/Monkey-Emotions/video/aragorn_240110
+python -m conditioned_stimulus.decoding_comparison_script "C:\Users\rober\Desktop\Analysis_Pipeline\240411_aragorn_video.pkl" --pre_pca 0.5
 ```
 
 **Parameters**
