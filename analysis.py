@@ -323,7 +323,7 @@ def decode_valence(
     valence_key="valence",
     shuffler=skms.ShuffleSplit,
     n_cv=100,
-    test_frac=0.2,
+    test_frac=0.1,
     block_key="block",
     mask_func=_make_block_masks,
     model=skm.SVC,
