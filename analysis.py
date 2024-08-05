@@ -43,7 +43,7 @@ def _make_nan_mask(X):
 
 
 def _make_block_masks(
-    data, train_block, test_block, block_key="block", existing_mask=None
+    data, train_block, test_block, block_key="Block", existing_mask=None
 ):
     if existing_mask is None:
         existing_mask = np.ones(len(data), dtype=bool)
@@ -259,7 +259,7 @@ def decode_valence_tc(
     shuffler=skms.ShuffleSplit,
     n_cv=100,
     test_frac=0.2,
-    block_key="block",
+    block_key="Block",
     mask_func=_make_block_masks,
     model=skm.SVC,
     test_trls=None,
@@ -323,7 +323,7 @@ def decode_valence(
     valence_key="valence",
     shuffler=skms.ShuffleSplit,
     n_cv=100,
-    test_frac=0.2,
+    test_frac=0.1,
     block_key="block",
     mask_func=_make_block_masks,
     model=skm.SVC,

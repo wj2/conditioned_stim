@@ -11,19 +11,17 @@
 ### add_video_script
 
 ```
-python -m conditioned_stimulus.add_video_script C:/Users/rober/Desktop/Analysis_Pipeline/Monkey-Emotions/240110_aragorn_generalization_behave.pkl -o 240110_aragorn_video.pkl --video_folder C:\Users\rober\Desktop\Analysis_Pipeline\Monkey-Emotions\video\aragorn_240110 --max_load 10
+python -m conditioned_stimulus.add_video_script "C:\Users\rober\Desktop\Analysis_Pipeline\Spatial_Abstraction\code\_data\aragorn_240411\240411_aragorn_airpuff_behave.pkl" -o 240411_aragorn_video.pkl --video_folder "C:\Users\rober\Desktop\Analysis_Pipeline\Spatial_Abstraction\code\video\aragorn_240411" --ignore_saved --epoch_start "Trace Start" --epoch_end "Trace End"
 ```
 
-python -m conditioned_stimulus.add_video_script "C:\Users\rober\Desktop\gandalf_20240112\240112_gandalf_VR_behave.pkl" -o 240112_gandalf_video.pkl --video_folder "C:\Users\rober\Desktop\gandalf_20240112\Gandalf_240112_Segmented" --max_load 10 --ignore_saved
-
-
-
-python -m conditioned_stimulus.add_video_script "C:\Users\rober\Desktop\aragorn_20240306\240306_aragorn_airpuff_behave.pkl" -o 240306_aragorn_video.pkl --video_folder "C:\Users\rober\Desktop\Analysis_Pipeline\Monkey-Emotions\video\aragorn_240306" --ignore_saved
+```
+python -m conditioned_stimulus.add_video_script "C:\Users\rober\Desktop\Analysis_Pipeline\Spatial_Abstraction\code\_data\aragorn_240610\240610_aragorn_airpuff_behave.pkl" -o 240610_aragorn_video.pkl --video_folder "C:\Users\rober\Desktop\Analysis_Pipeline\Spatial_Abstraction\code\_data\aragorn_240610\240610_Aragorn_Segmented" --ignore_saved --epoch_start "Trace Start" --epoch_end "Trace End"
+```
 
 ### decoding_comparison_script
 
 ```
-python -m conditioned_stimulus.decoding_comparison_script C:\Users\rober\Desktop\Analysis_Pipeline\conditioned_stimulus\data\240110_aragorn_video.pkl --pre_pca 0.5python -m conditioned_stimulus.add_video_script C:/Users/rober/Desktop/Monkey-Emotions/240110_aragorn_generalization_behave.pkl -o 240110_aragorn_video.pkl --video_folder C:/Users/rober/Desktop/Monkey-Emotions/video/aragorn_240110
+python -m conditioned_stimulus.decoding_comparison_script "C:\Users\rober\Desktop\Analysis_Pipeline\240411_aragorn_video.pkl" --pre_pca 0.5
 ```
 
 **Parameters**

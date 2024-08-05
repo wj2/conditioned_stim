@@ -64,6 +64,7 @@ if __name__ == "__main__":
     print(f"Data loaded from {args.data_file}")
     data = csx.load_data(data_file, folder="")
     if os.path.isfile(vsf) and not args.ignore_saved:
+        print(f"Loading processed videos from {vsf}")
         vs, ms = pickle.load(open(vsf, "rb"))
     else:
         print(f"Loading data from {data_file}")
@@ -86,12 +87,14 @@ if __name__ == "__main__":
             ms = csx.process_markers(
                 video_folder,
                 max_load=max_load,
+                data=data,
                 epoch_start=args.epoch_start,
                 epoch_end=args.epoch_end,
             )
         except Exception as e:
             print("loading markers failed, with {}".format(e))
             ms = None
+        print(f"Saving processed videos to {vsf}")
         pickle.dump((vs, ms), open(vsf, "wb"))
     print(f"  number of trials: {len(data)}")
     print("  Done.")
@@ -100,6 +103,11 @@ if __name__ == "__main__":
     print("Preprocessing data")
     data = csx.preprocess_data(data, video_data=vs[0], marker_data=ms)
     print("  Done.")
+
+    # summary of data preprocessing
+    csx.summary_preprocessing(data)
+
+    # save data
     print(f"Saving data to {args.output_file}")
 
     pickle.dump(data, open(args.output_file, "wb"))

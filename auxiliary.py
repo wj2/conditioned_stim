@@ -21,6 +21,9 @@ def load_data(fl, folder=DATA_FOLD, key="data_frame"):
     # return p.load(open(fp, "rb"))[key]
     return pd.read_pickle(fp)[key]
 
+def extract_trial_number_default(file_name):
+    parts = file_name.split('_')
+    return int(parts[2]) if len(parts) >= 3 else float('inf')  # Use inf if no number is found
 
 def _dim_red_video(video, use_pca=None, keep_pca=0.99):
     if use_pca is None:
@@ -74,15 +77,37 @@ def interpret_marker_file(*args, **kwargs):
 
 
 def _marker_generator(
-    folder, file_template=marker_template, max_load=np.inf, header_lines=(0, 1, 2)
+    folder,
+    file_template=marker_template, 
+    max_load=np.inf,
+    data=None,
+    trial_key="Trial", 
+    header_lines=(0, 1, 2),
+    start_key=None,
+    end_key=None,
+    frame_key="cam_frames",
+    trial_start_key="Start Trial"
 ):
     fls = os.listdir(folder)
     loaded = 0
     for fl in fls:
         out = interpret_marker_file(fl, file_template=file_template)
         if out is not None:
+            date, trial, cam, monkey = out
             print(f"  marker {fl}")
             markers = pd.read_csv(os.path.join(folder, fl), header=list(header_lines))
+            # if data is not None and start_key is not None and end_key is not None:
+            #     mask = data[trial_key].to_numpy() == int(trial) + 1
+            #     trl_data = data[mask]
+            #     start = trl_data[start_key].iloc[0]
+            #     end = trl_data[end_key].iloc[0]
+
+            #     if pd.isna(start) or pd.isna(end):
+            #         print(f"  skipping {fl} because {start} or {end} is nan")
+            #         continue
+            #     frame_times = np.array(trl_data[frame_key].iloc[0])
+            #     trl_start = trl_data[trial_start_key].to_numpy()
+            #     frame_times = frame_times[frame_times > trl_start]
             loaded += 1
             yield out, markers
         if loaded >= max_load:
@@ -101,7 +126,10 @@ def _video_generator(
     frame_key="cam_frames",
     trial_start_key="Start Trial",
 ):
-    fls = os.listdir(folder)
+    
+    # sort files by trial number
+    fls = sorted(os.listdir(folder), key=extract_trial_number_default)
+
     loaded = 0
     for fl in fls:
         if "filtered" in fl:
@@ -110,7 +138,7 @@ def _video_generator(
         out = interpret_video_file(fl, file_template)
         if out is not None:
             date, trial, cam, monkey = out
-
+            print(f"trial {trial}, monkey {monkey}, cam {cam}, ")
             start_time = time.time()
             video = skv_io.vread(os.path.join(folder, fl))
             video = skv_u.rgb2gray(video)
@@ -123,7 +151,7 @@ def _video_generator(
                 end = trl_data[end_key].iloc[0]
 
                 if pd.isna(start) or pd.isna(end):
-                    print(f"skipping {fl} because {start} or {end} is nan")
+                    print(f"  skipping {fl} because {start} or {end} is nan")
                     continue
                 frame_times = np.array(trl_data[frame_key].iloc[0])
                 trl_start = trl_data[trial_start_key].to_numpy()
@@ -132,18 +160,22 @@ def _video_generator(
                 vid_len = video.shape[0]
                 if ft_len != vid_len:
                     print(
-                        "frame times and video are different lengths: {}, {}".format(
+                        "  frame times and video are different lengths: {}, {}".format(
                             ft_len, vid_len
                         )
                     )
                 frame_times = frame_times[: video.shape[0]]
                 video_mask = np.logical_and(start <= frame_times, end > frame_times)
                 video = video[video_mask]
-            video = np.reshape(video, (video.shape[0], -1))
-            end_time = time.time()
-            print(f"     video {fl} loaded in {round(end_time - start_time, 2)}s")
-            loaded += 1
-            yield (date, trial, cam, monkey), video
+            try:
+                video = np.reshape(video, (video.shape[0], -1))
+                end_time = time.time()
+                print(f"     video {fl} loaded in {round(end_time - start_time, 2)}s")
+                loaded += 1
+                yield (date, trial, cam, monkey), video
+            except ValueError as e:
+                print(f"     error reshaping {fl}: {e}")
+                continue
         if loaded >= max_load:
             break
 
@@ -152,10 +184,23 @@ def process_markers(
     folder,
     file_template=marker_template,
     max_load=np.inf,
+    data=None,
+    epoch_start=None,
+    epoch_end=None,
 ):
+
+    print(f'Epochs Selected: {epoch_start}-{epoch_end}')
     markers_all = {}
     for info, markers in _marker_generator(
-        folder, file_template=file_template, max_load=max_load
+        folder, 
+        file_template=file_template, 
+        max_load=max_load,
+        data=data,
+        start_key=epoch_start,
+        end_key=epoch_end,
+        frame_key="cam_frames",
+        trial_start_key="Start Trial"
+
     ):
         date, trial, cam, monkey = info
         curr = markers_all.get((date, trial, monkey), {})
@@ -214,7 +259,7 @@ def process_videos(
     videos = {}
     cam_pca = {}
     # time each for loop
-    print(epoch_start, epoch_end)
+    print(f'Epochs Selected: {epoch_start}-{epoch_end}')
     for info, video in _video_generator(
         folder,
         file_template=file_template,
@@ -228,7 +273,6 @@ def process_videos(
         use_pca = cam_pca.get(cam, skd.IncrementalPCA(keep_pca))
         use_pca = _batch_partial_fit(use_pca, video)
         cam_pca[cam] = use_pca
-        print(f"  trial {trial}, monkey {monkey}, cam {cam}, ")
         # get time for each loop
         time_end = time.time()
         print(f"    pca time: {round(time_end - time_start, 2)}s")
@@ -393,8 +437,8 @@ def preprocess_data(
     data,
     sum_fields=("lick_count_window", "blink_count_window"),
     session_marker="date",
-    block_field="block",
-    tnum_field="trial_num",
+    block_field="Block",
+    tnum_field="Trial",
     reward_trigger="Reward Trigger",
     air_trigger="Airpuff Trigger",
     trace_trigger="Trace End",
@@ -406,8 +450,11 @@ def preprocess_data(
     sum_windows=None,
 ):
     for sf in sum_fields:
-        new_field = "sum_" + sf
-        data[new_field] = list(np.sum(sf_i) for sf_i in data[sf])
+        try:
+            new_field = "sum_" + sf
+            data[new_field] = list(np.sum(sf_i) for sf_i in data[sf])
+        except:
+            print(f"  {sf} not found")
     data["positive_valence"] = data["reward"] > 0
     pws = []
     pdiffs = []
@@ -429,6 +476,10 @@ def preprocess_data(
             sub = np.min(data[tnum_field][mask]) - 1
             block_tnum[mask] = block_tnum[mask] - sub
     data["block_trial_num"] = block_tnum
+    # remap eye data fields
+    if 'eye_x' not in data.columns:
+        data['eye_x'] = data['AnalogData.Eye.0']
+        data['eye_y'] = data['AnalogData.Eye.1']
     data = _mask_eyes(data, eye_mask_field, eye_map_field)
 
     chose_side = np.ones(len(data))
@@ -448,16 +499,36 @@ def preprocess_data(
             window_end="End Trial",
             marker_data=marker_data,
         )
-    for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
-        (pw, pre) = row
-        if np.all(np.isnan(pw)):
-            pws.append(np.nan)
-            pdiffs.append(np.nan)
-        else:
-            pw_i = pw[:]
-            pw_i[pw_i == 0] = np.nan
-            pws.append(pw_i)
-            pdiffs.append(np.nanmean(pw_i[-500:]) - np.nanmean(pre))
-    data["pupil_diff"] = pdiffs
-    data["pupil_window_nan"] = pws
+    # for index, row in data[["pupil_data_window", "pupil_pre_CS"]].iterrows():
+    #     (pw, pre) = row
+    #     if np.all(np.isnan(pw)):
+    #         pws.append(np.nan)
+    #         pdiffs.append(np.nan)
+    #     else:
+    #         pw_i = pw[:]
+    #         pw_i[pw_i == 0] = np.nan
+    #         pws.append(pw_i)
+    #         pdiffs.append(np.nanmean(pw_i[-500:]) - np.nanmean(pre))
+    # data["pupil_diff"] = pdiffs
+    # data["pupil_window_nan"] = pws
+    return data
+
+def summary_preprocessing(data):
+    print("Summary of data preprocessing")
+    print(f"  Total number of trials: {len(data)}")
+    correct_trials = data[data["TrialError"] == 0]
+    print(f"    Correct Trials: {len(correct_trials)}")
+    # find all columns with 'video' in the name
+    video_cols = [col for col in data.columns if 'video' in col]
+    print(f"  Number of cameras: {len(video_cols)}")
+    for cam in video_cols:
+        # count the number of non-null entries in each column
+        num_vids = data[cam].apply(lambda x: x is not None).sum()
+        print(f"    {cam} Data: {num_vids}")
+    marker_cols = [col for col in data.columns if 'markers' in col]
+    print(f"  Number of cameras: {len(marker_cols)}")
+    for cam in marker_cols:
+        num_vids = data[cam].apply(lambda x: x is not None).sum()
+        print(f"    {cam} Data: {num_vids}")
+    print("  Done.")
     return data

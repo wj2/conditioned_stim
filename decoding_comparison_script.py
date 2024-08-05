@@ -34,6 +34,8 @@ if __name__ == "__main__":
 
     if args.pre_pca >= 1:
         args.pre_pca = int(args.pre_pca)
+        # add pre_pca value to output name
+        args.output_name = "_".join((args.output_name, f"_{args.pre_pca}"))
     dec_data = csa.decode_feature_importance(data, pre_pca=args.pre_pca, n_cv=args.n_cv)
     
     fwid = args.subplot_fwid
