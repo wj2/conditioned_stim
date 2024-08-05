@@ -21,6 +21,7 @@ session_template = "(?P<animal>[a-zA-Z]+)_(?P<date>[0-9]+)"
 conditioned_timing_rename_dict = {}
 conditioned_info_rename_dict = {}
 
+
 def load_session_files(
     folder,
     spikes="spike_times.pkl",
@@ -91,6 +92,11 @@ def load_sessions(
     return data_use
 
 
+default_make_numeric = (
+    "Trace Start", "Trace End", "CS On",
+)
+
+
 def load_hashim_gulli_data_folder(
     folder,
     session_template=session_template,
@@ -98,6 +104,7 @@ def load_hashim_gulli_data_folder(
     exclude_last_n_trls=None,
     rename_dicts=None,
     load_only_nth_files=None,
+    make_numeric=default_make_numeric,
 ):
     if rename_dicts is None:
         rename_dicts = (conditioned_timing_rename_dict, conditioned_info_rename_dict)
@@ -133,6 +140,8 @@ def load_hashim_gulli_data_folder(
         data_all["neur_regions"] = neur_regions
         data_all["completed_trial"] = np.isin(data_all["TrialError"], (0, 6))
         data_all["correct_trial"] = data_all["TrialError"] == 0
+        for field in make_numeric:
+            data_all[field] = pd.to_numeric(data_all[field])
         data_all = rename_fields(data_all, *rename_dicts)
         datas.append(data_all)
 
