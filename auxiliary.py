@@ -10,9 +10,142 @@ import sklearn.utils as sku
 
 import re
 
+import general.data_io as gio
+import general.utility as u
+
 # PATHS
 DATA_FOLD = "../data/conditioned_stim/"
 FIG_FOLD = "conditioned_stimulus/figs/"
+session_template = "(?P<animal>[a-zA-Z]+)_(?P<date>[0-9]+)"
+
+conditioned_timing_rename_dict = {}
+conditioned_info_rename_dict = {}
+
+def load_session_files(
+    folder,
+    spikes="spike_times.pkl",
+    bhv="[0-9]+_[a-z]+_(VR|airpuff)_behave\\.pkl",
+    good_neurs="good_neurons.pkl",
+):
+    out_dict = {}
+    out_dict["spikes"] = pd.read_pickle(open(os.path.join(folder, spikes), "rb"))
+    bhv_fl = u.get_matching_files(folder, bhv)[0]
+    out_dict["bhv"] = pd.read_pickle(open(bhv_fl, "rb"))
+
+    out_dict["good_neurs"] = pd.read_pickle(
+        open(os.path.join(folder, good_neurs), "rb")
+    )
+    return out_dict
+
+
+def organize_spikes(spikes, neur_info):
+    neur_regions = tuple(neur_info["region"])
+    n_trls = len(spikes)
+    neur_regions_all = (neur_regions,) * n_trls
+    spike_times = []
+    for i, (_, row) in enumerate(spikes.iterrows()):
+        spk_times_i = np.zeros(len(row), dtype=object)
+        for j, r_ij in enumerate(row.to_numpy()):
+            spk_times_i[j] = np.array(r_ij)
+        spike_times.append(spk_times_i)
+    return neur_regions_all, spike_times
+
+
+def rename_fields(df, *dicts):
+    full_dict = {}
+    list(full_dict.update(d) for d in dicts)
+    for old_name, new_name in full_dict.items():
+        if u.check_list(old_name):
+            present = list(on in df.columns for on in old_name)
+            inds = np.where(present)[0]
+            if len(inds) == 0:
+                print("column {} is missing".format(old_name))
+            else:
+                old_name = old_name[inds[0]]
+        if old_name in df.columns:
+            rename = df[old_name]
+        else:
+            rename = np.ones(len(df)) * np.nan
+            print("no {} in the columns".format(old_name))
+        df[new_name] = rename
+    return df
+
+
+def mask_completed_trials(
+    data,
+    completed_field="completed_trial",
+):
+    mask = data[completed_field]
+    return data.mask(mask)
+
+
+def load_sessions(
+    folder=DATA_FOLD, **kwargs
+):
+    data = gio.Dataset.from_readfunc(
+        load_hashim_gulli_data_folder,
+        folder,
+        **kwargs,
+    )
+    data_use = mask_completed_trials(data)
+    return data_use
+
+
+def load_hashim_gulli_data_folder(
+    folder,
+    session_template=session_template,
+    max_files=np.inf,
+    exclude_last_n_trls=None,
+    rename_dicts=None,
+    load_only_nth_files=None,
+):
+    if rename_dicts is None:
+        rename_dicts = (conditioned_timing_rename_dict, conditioned_info_rename_dict)
+    dates = []
+    monkeys = []
+    n_neurs = []
+    datas = []
+    files_loaded = 0
+    folder_gen = u.load_folder_regex_generator(
+        folder,
+        session_template,
+        load_func=load_session_files,
+        open_file=False,
+        load_only_nth_files=load_only_nth_files,
+    )
+    for fl, fl_info, data_fl in folder_gen:
+        dates.append(fl_info["date"])
+        monkeys.append(fl_info["animal"])
+        n_neurs.append(len(data_fl["good_neurs"]))
+        neur_regions, spikes = organize_spikes(
+            data_fl["spikes"],
+            data_fl["good_neurs"],
+        )
+        data_all = data_fl["bhv"]["data_frame"]
+        if len(data_all) > len(spikes):
+            diff = len(data_all) - len(spikes)
+            print(
+                "difference in length between data ({}) and spikes ({})"
+                "in file {}".format(len(data_all), len(spikes), fl)
+            )
+            data_all = data_all[:-diff].copy()
+        data_all["spikeTimes"] = spikes
+        data_all["neur_regions"] = neur_regions
+        data_all["completed_trial"] = np.isin(data_all["TrialError"], (0, 6))
+        data_all["correct_trial"] = data_all["TrialError"] == 0
+        data_all = rename_fields(data_all, *rename_dicts)
+        datas.append(data_all)
+
+        files_loaded += 1
+        if files_loaded > max_files:
+            break
+    super_dict = dict(
+        date=dates,
+        animal=monkeys,
+        data=datas,
+        n_neurs=n_neurs,
+    )
+    return super_dict
 
 
 def load_data(fl, folder=DATA_FOLD, key="data_frame"):
