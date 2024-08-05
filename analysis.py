@@ -462,7 +462,7 @@ predictor_dict = {
 
 
 def decode_feature_importance(
-        data, pred_groups=predictor_dict, **kwargs,
+    data, pred_groups=predictor_dict, **kwargs,
 ):
     all_preds = set(np.concatenate(list(pred_groups.values())))
     pred_dict = dict(all_=all_preds, **pred_groups)
