@@ -1,4 +1,7 @@
 
+import matplotlib.pyplot as plt
+
+import general.plotting as gpl
 
 
 def make_magnitude_masks(
@@ -47,3 +50,21 @@ def decode_fields_times(data, mask_funcs=mask_funcs, time_fields=time_fields, **
             )
     return out_dict
     
+def plot_decoding_dict(out_dict, axs=None, line_labels=None, fwid=3):
+    if axs is None:
+        n_times = len(list(out_dict.values())[0])
+        n_vars = len(out_dict)
+        f, axs = plt.subplots(
+            n_vars, n_times, figsize=(fwid * n_times, fwid * n_vars), sharey=True,
+        )
+    for i, (k_var, var_dict) in enumerate(out_dict.items()):
+        for j, (time, out) in enumerate(var_dict.items()):
+            dec, xs = out[:2]
+            if line_labels is None:
+                line_labels = ("",) * len(dec)
+            for k, dec_k in enumerate(dec):
+                gpl.plot_trace_werr(
+                    xs, dec_k, confstd=True, ax=axs[i, j], label=line_labels[k],
+                )
+            gpl.add_hlines(.5, axs[i, j])
+    return axs
