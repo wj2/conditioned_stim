@@ -7,20 +7,24 @@ import general.plotting as gpl
 def make_magnitude_masks(
     data_use, block_key="Block", block=None, valence_key="valence", mag_thr=.5,
 ):
-    if block is not None:
-        data_use = data_use.mask(data_use[block_key] == block)
     m1 = (data_use[valence_key] > mag_thr).rs_or(data_use[valence_key] < -mag_thr)
     m2 = m1.rs_not()
+    if block is not None:
+        block_mask = data_use[block_key] == block
+        m1 = m1.rs_and(block_mask)
+        m2 = m2.rs_and(block_mask)
     return m1, m2    
 
 
 def make_valence_masks(
     data_use, block_key="Block", block=None, valence_key="valence", val_thr=.5,
 ):
-    if block is not None:
-        data_use = data_use.mask(data_use[block_key] == block)
-    m1 = m1 = data_use[valence_key] > val_thr
+    m1 = data_use[valence_key] > val_thr
     m2 = m1.rs_not()
+    if block is not None:
+        block_mask = data_use[block_key] == block
+        m1 = m1.rs_and(block_mask)
+        m2 = m2.rs_and(block_mask)
     return m1, m2    
     
 
