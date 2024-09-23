@@ -87,14 +87,15 @@ def mask_completed_trials(
     return data.mask(mask)
 
 
-def load_sessions(folder=DATA_FOLD, **kwargs):
+def load_sessions(folder=DATA_FOLD, completed_only=True, **kwargs):
     data = gio.Dataset.from_readfunc(
         load_hashim_gulli_data_folder,
         folder,
         **kwargs,
     )
-    data_use = mask_completed_trials(data)
-    return data_use
+    if completed_only:
+        data = mask_completed_trials(data)
+    return data
 
 
 default_make_numeric = (
@@ -157,7 +158,7 @@ def load_hashim_gulli_data_folder(
         datas.append(data_all)
 
         files_loaded += 1
-        if files_loaded > max_files:
+        if files_loaded >= max_files:
             break
     super_dict = dict(
         date=dates,
