@@ -1,6 +1,5 @@
 import os
 import time
-import pickle as p
 import numpy as np
 import skvideo.io as skv_io
 import skvideo.utils as skv_u
@@ -27,11 +26,19 @@ def load_session_files(
     spikes="spike_times.pkl",
     bhv="[0-9]+_[a-z]+_(VR|airpuff)_behave\\.pkl",
     good_neurs="good_neurons.pkl",
+    dlc_template="[0-9]+_[a-z]+_dlc_df_restruct.pkl",
 ):
     out_dict = {}
     out_dict["spikes"] = pd.read_pickle(open(os.path.join(folder, spikes), "rb"))
     bhv_fl = u.get_matching_files(folder, bhv)[0]
     out_dict["bhv"] = pd.read_pickle(open(bhv_fl, "rb"))
+    try:
+        dlc_fl = u.get_matching_files(folder, dlc_template)[0]
+        dlc_df = pd.read_pickle(open(dlc_fl, "rb"))
+        dlc_df["Trial"] = dlc_df["trial"]
+        out_dict["dlc_markers"] = dlc_df
+    except IndexError:
+        print("no dlc file found in {}".format(folder))
 
     out_dict["good_neurs"] = pd.read_pickle(
         open(os.path.join(folder, good_neurs), "rb")
@@ -80,9 +87,7 @@ def mask_completed_trials(
     return data.mask(mask)
 
 
-def load_sessions(
-    folder=DATA_FOLD, **kwargs
-):
+def load_sessions(folder=DATA_FOLD, **kwargs):
     data = gio.Dataset.from_readfunc(
         load_hashim_gulli_data_folder,
         folder,
@@ -93,7 +98,9 @@ def load_sessions(
 
 
 default_make_numeric = (
-    "Trace Start", "Trace End", "CS On",
+    "Trace Start",
+    "Trace End",
+    "CS On",
 )
 
 
@@ -129,6 +136,10 @@ def load_hashim_gulli_data_folder(
             data_fl["good_neurs"],
         )
         data_all = data_fl["bhv"]["data_frame"]
+        if "dlc_markers" in data_fl.keys():
+            data_all = data_all.join(
+                data_fl["dlc_markers"], on="Trial", rsuffix="dlc",
+            )
         if len(data_all) > len(spikes):
             diff = len(data_all) - len(spikes)
             print(
@@ -163,9 +174,13 @@ def load_data(fl, folder=DATA_FOLD, key="data_frame"):
     # return p.load(open(fp, "rb"))[key]
     return pd.read_pickle(fp)[key]
 
+
 def extract_trial_number_default(file_name):
-    parts = file_name.split('_')
-    return int(parts[2]) if len(parts) >= 3 else float('inf')  # Use inf if no number is found
+    parts = file_name.split("_")
+    return (
+        int(parts[2]) if len(parts) >= 3 else float("inf")
+    )  # Use inf if no number is found
+
 
 def _dim_red_video(video, use_pca=None, keep_pca=0.99):
     if use_pca is None:
@@ -174,7 +189,8 @@ def _dim_red_video(video, use_pca=None, keep_pca=0.99):
     return use_pca, use_pca.transform(video)
 
 
-# aragorn_230929_10_e3v831bDLC_resnet50_230929_aragorn_body_2Oct23shuffle1_1030000_filtered_labeled.mp4
+# aragorn_230929_10_e3v831bDLC_resnet50_230929_aragorn_
+# body_2Oct23shuffle1_1030000_filtered_labeled.mp4
 video_name_template = (
     "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)" ".*"
 )
@@ -182,7 +198,7 @@ video_name_template = (
 #     "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
 #     "_(?P<trial>[0-9]+).?"
 # )
-video_template = video_name_template + "\.mp4"
+video_template = video_name_template + "\\.mp4"
 
 # marker_name_template = (
 #    "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"
@@ -192,7 +208,7 @@ marker_name_template = (
     "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)"
     ".*_filtered"
 )
-marker_template = marker_name_template + "\.csv"
+marker_template = marker_name_template + "\\.csv"
 
 
 def _interpret_file(
@@ -220,15 +236,15 @@ def interpret_marker_file(*args, **kwargs):
 
 def _marker_generator(
     folder,
-    file_template=marker_template, 
+    file_template=marker_template,
     max_load=np.inf,
     data=None,
-    trial_key="Trial", 
+    trial_key="Trial",
     header_lines=(0, 1, 2),
     start_key=None,
     end_key=None,
     frame_key="cam_frames",
-    trial_start_key="Start Trial"
+    trial_start_key="Start Trial",
 ):
     fls = os.listdir(folder)
     loaded = 0
@@ -268,7 +284,6 @@ def _video_generator(
     frame_key="cam_frames",
     trial_start_key="Start Trial",
 ):
-    
     # sort files by trial number
     fls = sorted(os.listdir(folder), key=extract_trial_number_default)
 
@@ -330,19 +345,17 @@ def process_markers(
     epoch_start=None,
     epoch_end=None,
 ):
-
-    print(f'Epochs Selected: {epoch_start}-{epoch_end}')
+    print(f"Epochs Selected: {epoch_start}-{epoch_end}")
     markers_all = {}
     for info, markers in _marker_generator(
-        folder, 
-        file_template=file_template, 
+        folder,
+        file_template=file_template,
         max_load=max_load,
         data=data,
         start_key=epoch_start,
         end_key=epoch_end,
         frame_key="cam_frames",
-        trial_start_key="Start Trial"
-
+        trial_start_key="Start Trial",
     ):
         date, trial, cam, monkey = info
         curr = markers_all.get((date, trial, monkey), {})
@@ -401,7 +414,7 @@ def process_videos(
     videos = {}
     cam_pca = {}
     # time each for loop
-    print(f'Epochs Selected: {epoch_start}-{epoch_end}')
+    print(f"Epochs Selected: {epoch_start}-{epoch_end}")
     for info, video in _video_generator(
         folder,
         file_template=file_template,
@@ -595,11 +608,10 @@ def preprocess_data(
         try:
             new_field = "sum_" + sf
             data[new_field] = list(np.sum(sf_i) for sf_i in data[sf])
-        except:
+        except Exception as e:
             print(f"  {sf} not found")
+            print(e)
     data["positive_valence"] = data["reward"] > 0
-    pws = []
-    pdiffs = []
     delay_off = np.zeros(len(data))
     delay_off[:] = np.nan
     tr_mask = ~pd.isna(data[trace_trigger])
@@ -619,9 +631,9 @@ def preprocess_data(
             block_tnum[mask] = block_tnum[mask] - sub
     data["block_trial_num"] = block_tnum
     # remap eye data fields
-    if 'eye_x' not in data.columns:
-        data['eye_x'] = data['AnalogData.Eye.0']
-        data['eye_y'] = data['AnalogData.Eye.1']
+    if "eye_x" not in data.columns:
+        data["eye_x"] = data["AnalogData.Eye.0"]
+        data["eye_y"] = data["AnalogData.Eye.1"]
     data = _mask_eyes(data, eye_mask_field, eye_map_field)
 
     chose_side = np.ones(len(data))
@@ -655,19 +667,20 @@ def preprocess_data(
     # data["pupil_window_nan"] = pws
     return data
 
+
 def summary_preprocessing(data):
     print("Summary of data preprocessing")
     print(f"  Total number of trials: {len(data)}")
     correct_trials = data[data["TrialError"] == 0]
     print(f"    Correct Trials: {len(correct_trials)}")
     # find all columns with 'video' in the name
-    video_cols = [col for col in data.columns if 'video' in col]
+    video_cols = [col for col in data.columns if "video" in col]
     print(f"  Number of cameras: {len(video_cols)}")
     for cam in video_cols:
         # count the number of non-null entries in each column
         num_vids = data[cam].apply(lambda x: x is not None).sum()
         print(f"    {cam} Data: {num_vids}")
-    marker_cols = [col for col in data.columns if 'markers' in col]
+    marker_cols = [col for col in data.columns if "markers" in col]
     print(f"  Number of cameras: {len(marker_cols)}")
     for cam in marker_cols:
         num_vids = data[cam].apply(lambda x: x is not None).sum()
