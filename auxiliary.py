@@ -138,9 +138,21 @@ def load_hashim_gulli_data_folder(
         )
         data_all = data_fl["bhv"]["data_frame"]
         if "dlc_markers" in data_fl.keys():
-            data_all = data_all.join(
-                data_fl["dlc_markers"], on="Trial", rsuffix="dlc",
+            data_all = pd.merge(
+                data_all,
+                data_fl["dlc_markers"],
+                on="Trial",
+                suffixes=(None, "_dlc"),
+                how="left",
             )
+            new_frames = []
+            for i, cf in enumerate(data_all["cam_frames"]):
+                mask = np.logical_and(
+                    cf >= data_all["Start Trial"][i],
+                    cf < data_all["End Trial"][i],
+                )
+                new_frames.append(np.array(cf)[mask])
+            data_all["video_frames"] = new_frames
         if len(data_all) > len(spikes):
             diff = len(data_all) - len(spikes)
             print(
