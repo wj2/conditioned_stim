@@ -99,9 +99,16 @@ def load_sessions(folder=DATA_FOLD, completed_only=True, **kwargs):
 
 
 default_make_numeric = (
-    "Trace Start",
-    "Trace End",
-    "CS On",
+	'Start Trial',
+	'Fixation On',
+	'Fixation Success',
+	'CS On',
+	'Fixation Off',
+	'Trace Start',
+	'Trace End',
+	'Outcome Start',
+	'Outcome End',
+	'End Trial'
 )
 
 
