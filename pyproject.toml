@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "conditioned-stimulus"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "wj2", email = "wjeffreyjohnston@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "pandas~=2.2.2",
+  "matplotlib~=3.9.2",
+  "scikit-learn~=1.5.1",
+  "scikit-video~=1.1.11",
+  "general @ git+https://github.com/wj2/general-neural.git",
+]
+
+[project.urls]
+Documentation = "https://github.com/wj2/conditioned-stimulus#readme"
+Issues = "https://github.com/wj2/conditioned-stimulus/issues"
+Source = "https://github.com/wj2/conditioned-stimulus"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+path = "conditioned_stimulus/__about__.py"
+
+[tool.hatch.envs.default]
+python = "3.12"
