@@ -1,7 +1,43 @@
-
 import matplotlib.pyplot as plt
-
 import general.plotting as gpl
+
+def equals_one(x):
+    return x == 1
+
+def equal_0(x):
+    return x == 0
+
+default_funcs = {
+    "rewarded": equal_0,
+}
+
+default_dec_variables = (
+    "valence",
+    "intensity",
+)
+
+def make_variable_masks(
+    data,
+    dec_variables=default_dec_variables,
+    func_dict=None,
+    and_mask=None,
+):
+    """
+    The variables of interest are:
+    position (binary and continuous), correct side, view direction, choice
+    """
+    if func_dict is None:
+        func_dict = default_funcs
+    masks = {}
+    for k, v in dec_variables.items():
+        func = func_dict.get(k, equals_one)
+        m1 = func(data[v])
+        m2 = func(data[v]).rs_not()
+        if and_mask is not None:
+            m1 = m1.rs_and(and_mask)
+            m2 = m2.rs_and(and_mask)
+        masks[k] = (m1, m2)
+    return masks
 
 
 def make_magnitude_masks(

@@ -27,9 +27,15 @@ def load_session_files(
     bhv="[0-9]+_[a-z]+_(VR|airpuff)_behave\\.pkl",
     good_neurs="good_neurons.pkl",
     dlc_template="[0-9]+_[a-z]+_dlc_df_restruct.pkl",
+    dates_specified=None,
 ):
+    print(f'Loading: {folder}')
     out_dict = {}
-    out_dict["spikes"] = pd.read_pickle(open(os.path.join(folder, spikes), "rb"))
+    spikes_path = os.path.join(folder, spikes)
+    if os.path.exists(spikes_path):
+        out_dict["spikes"] = pd.read_pickle(open(os.path.join(folder, spikes), "rb"))
+    else:
+        print(f"  no {spikes} file found.")
     bhv_fl = u.get_matching_files(folder, bhv)[0]
     out_dict["bhv"] = pd.read_pickle(open(bhv_fl, "rb"))
     try:
@@ -38,15 +44,19 @@ def load_session_files(
         dlc_df["Trial"] = dlc_df["trial"]
         out_dict["dlc_markers"] = dlc_df
     except IndexError:
-        print("no dlc file found in {}".format(folder))
-
-    out_dict["good_neurs"] = pd.read_pickle(
-        open(os.path.join(folder, good_neurs), "rb")
-    )
+        print("  no dlc file found.")
+    good_neurs_path = os.path.join(folder, good_neurs)
+    if os.path.exists(good_neurs_path):
+        out_dict["good_neurs"] = pd.read_pickle(
+            open(os.path.join(folder, good_neurs), "rb")
+        )
+    else:
+        print(f"  no {good_neurs} file found.")
     return out_dict
 
 
 def organize_spikes(spikes, neur_info):
+    print(f'  organizing spikes.')
     neur_regions = tuple(neur_info["region"])
     n_trls = len(spikes)
     neur_regions_all = (neur_regions,) * n_trls
@@ -87,10 +97,18 @@ def mask_completed_trials(
     return data.mask(mask)
 
 
-def load_sessions(folder=DATA_FOLD, completed_only=True, **kwargs):
+def load_sessions(
+        folder=DATA_FOLD, 
+        completed_only=True, 
+        skip_dlc=False,
+        dates_specified=None, 
+        **kwargs
+    ):
     data = gio.Dataset.from_readfunc(
         load_hashim_gulli_data_folder,
         folder,
+        skip_dlc=skip_dlc,
+        dates_specified=dates_specified,
         **kwargs,
     )
     if completed_only:
@@ -120,6 +138,8 @@ def load_hashim_gulli_data_folder(
     rename_dicts=None,
     load_only_nth_files=None,
     make_numeric=default_make_numeric,
+    skip_dlc=False,
+    dates_specified=False
 ):
     if rename_dicts is None:
         rename_dicts = (conditioned_timing_rename_dict, conditioned_info_rename_dict)
@@ -134,45 +154,57 @@ def load_hashim_gulli_data_folder(
         load_func=load_session_files,
         open_file=False,
         load_only_nth_files=load_only_nth_files,
+        dates_specified=dates_specified,
     )
     for fl, fl_info, data_fl in folder_gen:
         dates.append(fl_info["date"])
         monkeys.append(fl_info["animal"])
-        n_neurs.append(len(data_fl["good_neurs"]))
-        neur_regions, spikes = organize_spikes(
-            data_fl["spikes"],
-            data_fl["good_neurs"],
-        )
+        neur_regions = []
+        spikes = []
+        if "good_neurs" in data_fl.keys():
+            n_neurs.append(len(data_fl["good_neurs"]))
+            neur_regions, spikes = organize_spikes(
+                data_fl["spikes"],
+                data_fl["good_neurs"],
+            )
+        else:
+            n_neurs.append(0)
         data_all = data_fl["bhv"]["data_frame"]
+        # convert fields to numeric
+        for field in make_numeric:
+            type(data_all[field])
+            data_all[field] = pd.to_numeric(data_all[field], errors='coerce')
         if "dlc_markers" in data_fl.keys():
-            data_all = pd.merge(
-                data_all,
-                data_fl["dlc_markers"],
-                on="Trial",
-                suffixes=(None, "_dlc"),
-                how="left",
-            )
-            new_frames = []
-            for i, cf in enumerate(data_all["cam_frames"]):
-                mask = np.logical_and(
-                    cf >= data_all["Start Trial"][i],
-                    cf < data_all["End Trial"][i],
+            if skip_dlc:
+                print("  skipping dlc")
+            else:
+                data_all = pd.merge(
+                    data_all,
+                    data_fl["dlc_markers"],
+                    on="Trial",
+                    suffixes=(None, "_dlc"),
+                    how="left",
                 )
-                new_frames.append(np.array(cf)[mask])
-            data_all["video_frames"] = new_frames
-        if len(data_all) > len(spikes):
-            diff = len(data_all) - len(spikes)
-            print(
-                "difference in length between data ({}) and spikes ({})"
-                "in file {}".format(len(data_all), len(spikes), fl)
-            )
-            data_all = data_all[:-diff].copy()
-        data_all["spikeTimes"] = spikes
-        data_all["neur_regions"] = neur_regions
+                new_frames = []
+                for i, cf in enumerate(data_all["cam_frames"]):
+                    mask = np.logical_and(
+                        cf >= data_all["Start Trial"][i],
+                        cf < data_all["End Trial"][i],
+                    )
+                    new_frames.append(np.array(cf)[mask])
+                data_all["video_frames"] = new_frames
+        if len(spikes) > 0 and len(neur_regions) > 0:
+            if len(data_all) > len(spikes):
+                diff = len(data_all) - len(spikes)
+                print(
+                    "difference in length between data ({}) and spikes ({})"
+                    "in file {}".format(len(data_all), len(spikes), fl)
+                )
+                data_all = data_all[:-diff].copy()
+            data_all["spikeTimes"] = spikes
+            data_all["neur_regions"] = neur_regions
         data_all["completed_trial"] = np.isin(data_all["TrialError"], (0, 6))
         data_all["correct_trial"] = data_all["TrialError"] == 0
-        for field in make_numeric:
-            data_all[field] = pd.to_numeric(data_all[field])
         data_all = rename_fields(data_all, *rename_dicts)
         datas.append(data_all)
 
@@ -185,6 +217,7 @@ def load_hashim_gulli_data_folder(
         data=datas,
         n_neurs=n_neurs,
     )
+    print(f'Loading...done.')
     return super_dict
 
 
