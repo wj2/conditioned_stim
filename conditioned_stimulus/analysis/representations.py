@@ -58,7 +58,7 @@ def get_bhv_rep_dec_info(
 def decode_bhv_rep_corr(rep, bhv, target, mask=None, n_folds=100, rng_seed=None):
     if rng_seed is None:
         rng = np.random.default_rng()
-        rng_seed = rng.randint(2**8 - 1)
+        rng_seed = rng.integers(2**32 - 1)
     if mask is None:
         mask = np.ones_like(target, dtype=bool)
 
