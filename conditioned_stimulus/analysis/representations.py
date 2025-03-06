@@ -1,11 +1,20 @@
 import matplotlib.pyplot as plt
+import numpy as np
+import sklearn.svm as skm
+import sklearn.metrics.pairwise as skmp
+
+import general.neural_analysis as na
 import general.plotting as gpl
+import general.utility as u
+
 
 def equals_one(x):
     return x == 1
 
+
 def equal_0(x):
     return x == 0
+
 
 default_funcs = {
     "rewarded": equal_0,
@@ -15,6 +24,132 @@ default_dec_variables = (
     "valence",
     "intensity",
 )
+
+
+def get_bhv_rep_dec_info(data, t_start, sess_ind=0, binsize=500, binstep=500):
+    pass
+
+def get_rep_info(
+    data,
+    t_start,
+    sess_ind=0,
+    binsize=500,
+    binstep=500,
+    time_zero_field="CS On",
+    **kwargs,
+):
+    tnum = data["Trial"][sess_ind]
+    block = data["Block"][sess_ind]
+    stim = data["fractal_chosen"][sess_ind]
+    valence = data["valence"][sess_ind]
+
+    pops, xs = data.get_neural_activity(
+        binsize,
+        t_start,
+        t_start,
+        binstep,
+        time_zero_field=time_zero_field,
+        skl_axes=True,
+        **kwargs,
+    )
+    rep = pops[sess_ind]
+    return rep, block, tnum, stim, valence
+
+
+@gpl.ax_adder()
+def block_rep_change(
+    rep,
+    block,
+    tnum,
+    stim,
+    valence,
+    n_train_trls=100,
+    train_block=1,
+    n_folds=50,
+    model=skm.LinearSVC,
+    valence_cmap="bwr",
+    stim_marker=("X", "o", "*", "D"),
+    n_trls_avg=8,
+    ax=None,
+    arrow_len=0.5,
+    **kwargs,
+):
+    valence = valence.to_numpy()
+    mag = np.abs(valence)
+    valence_binary = valence > np.mean(valence)
+    mag = mag > np.mean(mag)
+    dec_targets = np.stack((valence_binary, mag), axis=1)
+
+    (rep,) = na.zscore_tc(rep)
+    rep = np.squeeze(rep, axis=1)
+
+    block_mask = block == train_block
+    tr_trls = tnum[block_mask][-n_train_trls:]
+    tr_mask = np.isin(tnum, tr_trls)
+    tr_rep = rep[:, tr_mask]
+    tr_targets = dec_targets[tr_mask]
+
+    out = na.fold_skl_flat(
+        tr_rep,
+        tr_targets,
+        n_folds,
+        model=model,
+        mean=False,
+        pre_pca=None,
+        norm=False,
+        **kwargs,
+    )
+
+    basis = na.get_multioutput_coeffs(out["estimators"], pipeline_ind=-1, orthog=True)
+    coeffs = na.get_multioutput_coeffs(out["estimators"], pipeline_ind=-1)
+    coeffs_mu = np.mean(coeffs[:, 0], axis=0)
+    basis_mu = np.mean(basis[:, 0], axis=0)
+
+    te_mask = np.logical_not(tr_mask)
+    u_stim = np.unique(stim)
+    u_blocks = np.unique(block)
+    v_cmap = plt.get_cmap(valence_cmap)
+    rep_proj = (basis_mu @ rep[..., 0]).T
+    dim_proj = arrow_len * u.make_unit_vector((basis_mu @ coeffs_mu.T).T)
+
+    ax.arrow(0, 0, dim_proj[0, 0], dim_proj[0, 1], color="k", width=0.01)
+    ax.arrow(0, 0, dim_proj[1, 0], dim_proj[1, 1], color="k", width=0.01)
+    valence_rs = valence - np.min(valence) - 0.1
+    valence_rs = valence_rs / (np.max(valence_rs) + 0.1)
+    for i, s in enumerate(u_stim):
+        stim_mask = s == stim
+        marker = stim_marker[i]
+        mask_s = np.logical_and(te_mask, stim_mask).to_numpy()
+        rp_s = rep_proj[mask_s]
+        block_s = block[mask_s]
+        inds = np.arange(len(rp_s))
+        ind_dists = skmp.euclidean_distances(inds[:, None]) <= n_trls_avg
+        rp_s_avg = np.zeros_like(rp_s)
+        for k in range(len(inds)):
+            rp_s_avg[k] = np.mean(rp_s[ind_dists[k]], axis=0)
+        ax.plot(*rp_s_avg.T, color=(0.9, 0.9, 0.9))
+        for j, b in enumerate(u_blocks):
+            b_mask = b == block_s
+            color = v_cmap(valence_rs[mask_s][b_mask][0])
+
+            ax.plot(*rp_s_avg[block_s == b].T, color=color)
+            ax.scatter(
+                *rp_s_avg[block_s == b][[0]].T,
+                color=(1, 1, 1),
+                edgecolors=color,
+                marker=marker,
+                zorder=-1,
+            )
+            ax.scatter(
+                *rp_s_avg[block_s == b][[-1]].T,
+                color=color,
+                marker=marker,
+                zorder=-1,
+            )
+    ax.set_aspect("equal")
+    gpl.clean_plot(ax, 1)
+    gpl.clean_plot_bottom(ax)
+
 
 def make_variable_masks(
     data,
@@ -41,7 +176,11 @@ def make_variable_masks(
 
 
 def make_magnitude_masks(
-    data_use, block_key="Block", block=None, valence_key="valence", mag_thr=.5,
+    data_use,
+    block_key="Block",
+    block=None,
+    valence_key="valence",
+    mag_thr=0.5,
 ):
     m1 = (data_use[valence_key] > mag_thr).rs_or(data_use[valence_key] < -mag_thr)
     m2 = m1.rs_not()
@@ -49,11 +188,15 @@ def make_magnitude_masks(
         block_mask = data_use[block_key] == block
         m1 = m1.rs_and(block_mask)
         m2 = m2.rs_and(block_mask)
-    return m1, m2    
+    return m1, m2
 
 
 def make_valence_masks(
-    data_use, block_key="Block", block=None, valence_key="valence", val_thr=.5,
+    data_use,
+    block_key="Block",
+    block=None,
+    valence_key="valence",
+    val_thr=0.5,
 ):
     m1 = data_use[valence_key] > val_thr
     m2 = m1.rs_not()
@@ -61,8 +204,8 @@ def make_valence_masks(
         block_mask = data_use[block_key] == block
         m1 = m1.rs_and(block_mask)
         m2 = m2.rs_and(block_mask)
-    return m1, m2    
-    
+    return m1, m2
+
 
 def decode_masks(data, m1, m2, tbeg, tend, winsize=500, winstep=50, **kwargs):
     out = data.decode_masks(m1, m2, winsize, tbeg, tend, winstep, **kwargs)
@@ -89,13 +232,17 @@ def decode_fields_times(data, mask_funcs=mask_funcs, time_fields=time_fields, **
                 data, m1, m2, tbeg, tend, time_zero_field=k_tf, **kwargs
             )
     return out_dict
-    
+
+
 def plot_decoding_dict(out_dict, axs=None, line_labels=None, fwid=3):
     if axs is None:
         n_times = len(list(out_dict.values())[0])
         n_vars = len(out_dict)
         f, axs = plt.subplots(
-            n_vars, n_times, figsize=(fwid * n_times, fwid * n_vars), sharey=True,
+            n_vars,
+            n_times,
+            figsize=(fwid * n_times, fwid * n_vars),
+            sharey=True,
         )
     for i, (k_var, var_dict) in enumerate(out_dict.items()):
         for j, (time, out) in enumerate(var_dict.items()):
@@ -104,7 +251,11 @@ def plot_decoding_dict(out_dict, axs=None, line_labels=None, fwid=3):
                 line_labels = ("",) * len(dec)
             for k, dec_k in enumerate(dec):
                 gpl.plot_trace_werr(
-                    xs, dec_k, confstd=True, ax=axs[i, j], label=line_labels[k],
+                    xs,
+                    dec_k,
+                    confstd=True,
+                    ax=axs[i, j],
+                    label=line_labels[k],
                 )
-            gpl.add_hlines(.5, axs[i, j])
+            gpl.add_hlines(0.5, axs[i, j])
     return axs

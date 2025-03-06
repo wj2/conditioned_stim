@@ -25,17 +25,21 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = [
-  "pandas~=2.2.2",
+  "pandas>=2.2.2",
   "matplotlib~=3.9.2",
-  "scikit-learn~=1.5.1",
+  "scikit-learn>=1.5.1",
   "scikit-video~=1.1.11",
+]
+
+[project.optional-dependencies]
+general = [
   "general @ git+https://github.com/wj2/general-neural.git",
 ]
 
 [project.urls]
-Documentation = "https://github.com/wj2/conditioned-stimulus#readme"
-Issues = "https://github.com/wj2/conditioned-stimulus/issues"
-Source = "https://github.com/wj2/conditioned-stimulus"
+Documentation = "https://github.com/wj2/conditioned_stim#readme"
+Issues = "https://github.com/wj2/conditioned_stim/issues"
+Source = "https://github.com/wj2/conditioned_stim"
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -45,3 +49,9 @@ path = "conditioned_stimulus/__about__.py"
 
 [tool.hatch.envs.default]
 python = "3.12"
+
+[tool.hatch.envs.test]
+python = "3.12"
+features = [
+  "general",
+]
