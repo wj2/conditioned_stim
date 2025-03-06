@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import re
 import numpy as np
 import sklearn.svm as skm
 import sklearn.metrics.pairwise as skmp
@@ -26,8 +27,71 @@ default_dec_variables = (
 )
 
 
-def get_bhv_rep_dec_info(data, t_start, sess_ind=0, binsize=500, binstep=500):
-    pass
+def get_bhv_rep_dec_info(
+    data,
+    t_start,
+    sess_ind=0,
+    binsize=500,
+    binstep=500,
+    marker_regex=".*manual.*(x|y)",
+    time_zero_field="CS On",
+):
+    pops, xs = data.get_neural_activity(
+        binsize,
+        t_start,
+        t_start,
+        binstep,
+        time_zero_field=time_zero_field,
+    )
+    rep = pops[sess_ind]
+    valence = data["valence"][sess_ind].to_numpy()
+
+    markers = list(x for x in data.session_keys if re.match(marker_regex, x))
+
+    marks, xs = data.get_field_timeseries(
+        markers, time_zero_field=time_zero_field, begin=t_start, end=t_start + binsize
+    )
+    bhv = np.nanmean(marks[sess_ind], axis=-1, keepdims=True)
+    return rep, bhv, valence
+
+
+def decode_bhv_rep_corr(rep, bhv, target, mask=None, n_folds=100, rng_seed=None):
+    if rng_seed is None:
+        rng = np.random.default_rng()
+        rng_seed = rng.randint(2**8 - 1)
+    if mask is None:
+        mask = np.ones_like(target, dtype=bool)
+
+    out_rep = na.fold_skl_shape(
+        rep[mask], 
+        target[mask],
+        n_folds, 
+        rng_seed=rng_seed, 
+        return_projection=True
+    )
+    out_bhv = na.fold_skl_shape(
+        bhv[mask], 
+        target[mask],
+        n_folds, 
+        rng_seed=rng_seed, 
+        return_projection=True
+    )
+    return out_rep, out_bhv
+
+
+@gpl.ax_adder()
+def plot_bhv_rep_corr(rep_dict, bhv_dict, ax=None):
+    rep_projs = rep_dict["projection"].flatten()
+    bhv_projs = bhv_dict["projection"].flatten()
+
+    ax.plot(rep_projs, bhv_projs, "o")
+    ax.set_xlabel("projection in neural space")
+    ax.set_ylabel("projection in bhv space")
+    gpl.clean_plot(ax, 0)
+    print("correlation: ", np.corrcoef(rep_projs, bhv_projs)[1, 0])
+    print("rep decoding: ", rep_dict["score"])
+    print("bhv decoding: ", bhv_dict["score"])
+
 
 def get_rep_info(
     data,
