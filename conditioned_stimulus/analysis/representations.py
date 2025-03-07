@@ -63,28 +63,40 @@ def decode_bhv_rep_corr(rep, bhv, target, mask=None, n_folds=100, rng_seed=None)
         mask = np.ones_like(target, dtype=bool)
 
     out_rep = na.fold_skl_shape(
-        rep[mask], 
-        target[mask],
-        n_folds, 
-        rng_seed=rng_seed, 
-        return_projection=True
+        rep[mask], target[mask], n_folds, rng_seed=rng_seed, return_projection=True
     )
     out_bhv = na.fold_skl_shape(
-        bhv[mask], 
-        target[mask],
-        n_folds, 
-        rng_seed=rng_seed, 
-        return_projection=True
+        bhv[mask], target[mask], n_folds, rng_seed=rng_seed, return_projection=True
     )
     return out_rep, out_bhv
 
 
 @gpl.ax_adder()
-def plot_bhv_rep_corr(rep_dict, bhv_dict, ax=None):
+def plot_bhv_rep_corr(
+    rep_dict,
+    bhv_dict,
+    color_info=None,
+    ax=None,
+    scatter_cmap="Blues",
+    bhv_correct=False,
+    target=None,
+):
     rep_projs = rep_dict["projection"].flatten()
     bhv_projs = bhv_dict["projection"].flatten()
+    if color_info is not None:
+        inds = rep_dict["test_inds"].flatten()
+        colors = color_info[inds]
+    else:
+        colors = None
+    cmap = plt.get_cmap(scatter_cmap)
+    if target is not None and bhv_correct:
+        bhv_mask = target[inds] == (bhv_projs > 0)
+        rep_projs = rep_projs[bhv_mask]
+        bhv_projs = bhv_projs[bhv_mask]
+        if colors is not None:
+            colors = colors[bhv_mask]
 
-    ax.plot(rep_projs, bhv_projs, "o")
+    ax.scatter(rep_projs, bhv_projs, c=colors, cmap=cmap)
     ax.set_xlabel("projection in neural space")
     ax.set_ylabel("projection in bhv space")
     gpl.clean_plot(ax, 0)
@@ -120,6 +132,17 @@ def get_rep_info(
     return rep, block, tnum, stim, valence
 
 
+def _make_tr_mask(block, train_blocks, n_train_trls):
+    inds = np.arange(len(block))
+    tr_inds = []
+    for b in train_blocks:
+        mask = b == block
+        b_inds = inds[mask][-n_train_trls:]
+        tr_inds.extend(b_inds)
+    tr_mask = np.isin(inds, tr_inds)
+    return tr_mask
+
+
 @gpl.ax_adder()
 def block_rep_change(
     rep,
@@ -128,7 +151,7 @@ def block_rep_change(
     stim,
     valence,
     n_train_trls=100,
-    train_block=1,
+    train_blocks=(1,),
     n_folds=50,
     model=skm.LinearSVC,
     valence_cmap="bwr",
@@ -136,6 +159,8 @@ def block_rep_change(
     n_trls_avg=8,
     ax=None,
     arrow_len=0.5,
+    v_color=(0.2, 0.5, 0.2),
+    m_color=(0.2, 0.9, 0.4),
     **kwargs,
 ):
     valence = valence.to_numpy()
@@ -147,9 +172,7 @@ def block_rep_change(
     (rep,) = na.zscore_tc(rep)
     rep = np.squeeze(rep, axis=1)
 
-    block_mask = block == train_block
-    tr_trls = tnum[block_mask][-n_train_trls:]
-    tr_mask = np.isin(tnum, tr_trls)
+    tr_mask = _make_tr_mask(block, train_blocks, n_train_trls)
     tr_rep = rep[:, tr_mask]
     tr_targets = dec_targets[tr_mask]
 
@@ -176,8 +199,18 @@ def block_rep_change(
     rep_proj = (basis_mu @ rep[..., 0]).T
     dim_proj = arrow_len * u.make_unit_vector((basis_mu @ coeffs_mu.T).T)
 
-    ax.arrow(0, 0, dim_proj[0, 0], dim_proj[0, 1], color="k", width=0.01)
-    ax.arrow(0, 0, dim_proj[1, 0], dim_proj[1, 1], color="k", width=0.01)
+    ax.arrow(
+        0, 0, dim_proj[0, 0], dim_proj[0, 1], color=v_color, width=0.01, label="valence"
+    )
+    ax.arrow(
+        0,
+        0,
+        dim_proj[1, 0],
+        dim_proj[1, 1],
+        color=m_color,
+        width=0.01,
+        label="magnitude",
+    )
     valence_rs = valence - np.min(valence) - 0.1
     valence_rs = valence_rs / (np.max(valence_rs) + 0.1)
     for i, s in enumerate(u_stim):
@@ -194,7 +227,7 @@ def block_rep_change(
         ax.plot(*rp_s_avg.T, color=(0.9, 0.9, 0.9))
         for j, b in enumerate(u_blocks):
             b_mask = b == block_s
-            color = v_cmap(valence_rs[mask_s][b_mask][0])
+            color = v_cmap(np.median(valence_rs[mask_s][b_mask]))
 
             ax.plot(*rp_s_avg[block_s == b].T, color=color)
             ax.scatter(
