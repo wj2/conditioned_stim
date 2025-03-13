@@ -3,6 +3,8 @@ import re
 import numpy as np
 import sklearn.svm as skm
 import sklearn.metrics.pairwise as skmp
+import sklearn.decomposition as skd
+import sklearn.mixture as skmix
 
 import general.neural_analysis as na
 import general.plotting as gpl
@@ -25,6 +27,129 @@ default_dec_variables = (
     "valence",
     "intensity",
 )
+
+
+def make_u_var_mask_gen(*vars):
+    u_vars = list(np.unique(var) for var in vars)
+    arr = np.zeros(list(len(uv) for uv in u_vars))
+    gen = u.make_array_ind_iterator(arr.shape)
+    for ind in gen:
+        mask = np.ones(len(vars[0]), dtype=bool)
+        for z, v in enumerate(vars):
+            mask = np.logical_and(v == u_vars[z][ind[z]], mask)
+        if np.sum(mask) > 0:
+            vals = tuple(uv[ind[i]] for i, uv in enumerate(u_vars))
+            yield ind, vals, mask
+
+
+@gpl.ax_adder(three_dim=True)
+def plot_bhv_traj(
+    bhv,
+    valence,
+    block,
+    stim,
+    ax=None,
+    pca=3,
+    cmaps=("Purples", "Blues", "Oranges", "Reds"),
+):
+    p = skd.PCA(pca)
+    pca_trajs = []
+    for (i, j, k), (v, b, s), mask in make_u_var_mask_gen(valence, block, stim):
+        pca_trajs.append(np.mean(bhv[mask], axis=0).T)
+    p.fit(np.concatenate(pca_trajs, axis=0))
+    for (i, j, k), (v, b, s), mask in make_u_var_mask_gen(valence, block, stim):
+        traj = p.transform(np.mean(bhv[mask], axis=0).T)
+        gpl.plot_colored_line(
+            *traj.T,
+            ax=ax,
+            col_inds=np.linspace(0.1, 0.9, traj.shape[0]),
+            cmap=cmaps[i],
+        )
+    ax.set_aspect("equal")
+    gpl.clean_3d_plot(ax)
+    gpl.make_3d_bars(ax, bar_len=1000)
+
+
+def get_bhv_dec_regressors(
+    bhv,
+    targ,
+    n_folds=50,
+    test_prop=0.1,
+    tr_mask=None,
+    te_mask=None,
+    te_masks=None,
+    model=skm.LinearSVC,
+    **kwargs,
+):
+    """
+    bhv: n_trls, n_trackers, n_times
+    targ: n_trls
+    """
+    if tr_mask is None and te_mask is None:
+        tr_bhv = bhv
+        tr_targ = targ
+        te_bhv = None
+        te_targ = None
+    else:
+        if tr_mask is not None and te_mask is None:
+            te_mask = np.logical_not(tr_mask)
+        elif tr_mask is None and te_masks is not None:
+            te_mask = np.product(te_masks, axis=0)
+            tr_mask = np.logical_not(te_mask)
+        elif tr_mask is None and te_mask is not None:
+            tr_mask = np.logical_not(te_mask)
+        if te_mask is None and te_masks is not None:
+            te_mask = np.product(te_masks, axis=0)
+        tr_bhv = bhv[tr_mask]
+        tr_targ = targ[tr_mask]
+        te_bhv = bhv[te_mask]
+        te_targ = targ[te_mask]
+
+    out = na.fold_skl_shape(
+        tr_bhv,
+        tr_targ,
+        n_folds,
+        model=model,
+        c_gen=te_bhv,
+        l_gen=te_targ,
+        pre_pca=None,
+        mean=False,
+        test_prop=test_prop,
+        **kwargs,
+    )
+    coeffs = na.get_estimator_coeffs(out["estimators"], pipeline_ind=-1)
+    if te_masks is not None:
+        preds = out["predictions_gen"]
+        labels = out["labels_gen"]
+        te_scores = list(
+            np.mean(preds[:, m[te_mask]] == labels[m[te_mask]][None, :, None], axis=1)
+            for m in te_masks
+        )
+        out["te_masks_scores_gen"] = te_scores
+
+    scale = np.mean(np.abs((out["score"] - 0.5) / 0.5), axis=0)
+    dec_vec = u.make_unit_vector(np.mean(coeffs, axis=0))
+
+    scaled_coeff_vec = scale[:, None] * dec_vec
+    return scaled_coeff_vec, out
+
+
+@gpl.ax_adder()
+def plot_multiblock_gen(xs, out, ax=None, tr_block=1, te_blocks=(2, 3)):
+    gpl.plot_trace_werr(
+        xs,
+        out["score"],
+        confstd=True,
+        ax=ax,
+        label="block {} (trained)".format(tr_block),
+    )
+    for i, sg in enumerate(out["te_masks_scores_gen"]):
+        gpl.plot_trace_werr(
+            xs, sg, confstd=True, ax=ax, label="block {}".format(te_blocks[i])
+        )
+    gpl.add_hlines(0.5, ax)
+    ax.set_ylabel("valence decoding")
+    ax.set_xlabel("time from CS On")
 
 
 def get_bhv_rep_dec_info(
@@ -69,6 +194,59 @@ def decode_bhv_rep_corr(rep, bhv, target, mask=None, n_folds=100, rng_seed=None)
         bhv[mask], target[mask], n_folds, rng_seed=rng_seed, return_projection=True
     )
     return out_rep, out_bhv
+
+
+def _strip_cam_model(markers):
+    markers = list(m.split(".", 2)[-1] for m in markers)
+    return markers
+
+
+@gpl.ax_adder(three_dim=True)
+def plot_bhv_dir(
+    *vecs,
+    markers=None,
+    top_n_markers=2,
+    skip_points=5,
+    ax=None,
+    proc_marker_func=_strip_cam_model,
+    cmaps=("Blues", "Oranges"),
+):
+    p = skd.PCA(3)
+    p.fit(np.concatenate(vecs))
+    vec_trs = list(p.transform(v) for v in vecs)
+
+    for i, vt in enumerate(vec_trs):
+        ax.plot(*vt.T)
+        gpl.plot_colored_line(*vt.T, cmap=cmaps[i], ax=ax)
+
+        if markers is not None:
+            if proc_marker_func is not None:
+                markers = proc_marker_func(markers)
+            m_arr = np.array(markers, dtype=object)
+            for j, v_ij in enumerate(vt[::skip_points]):
+                highest_feats = m_arr[np.argsort(vecs[i][j])][:top_n_markers]
+                ax.text(
+                    *v_ij,
+                    "\n".join(highest_feats),
+                )
+
+    ax.plot([0], [0], [0], "o", ms=5, color=(0.7, 0.7, 0.7))
+    gpl.clean_3d_plot(ax)
+    gpl.make_3d_bars(ax, center=(-0.2, -0.2, -0.2), bar_len=0.1)
+
+
+@gpl.ax_adder()
+def plot_bhv_weight_map(xs, vec, markers, cmap="Blues", ax=None, n_clusters=3):
+    ys = np.arange(vec.shape[1])
+    vec = np.abs(vec).T
+    if n_clusters is not None:
+        gm = skmix.GaussianMixture(n_components=n_clusters)
+        inds = gm.fit_predict(vec)
+        inds = np.argsort(inds)
+        vec = vec[inds]
+        markers = np.array(markers, dtype=object)[inds]
+    gpl.pcolormesh(xs, ys, vec, ax=ax, cmap=cmap)
+    ax.set_yticklabels(markers)
 
 
 @gpl.ax_adder()
