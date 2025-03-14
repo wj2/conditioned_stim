@@ -11,6 +11,9 @@ import general.plotting as gpl
 import general.utility as u
 
 
+default_stim_marker = ("X", "o", "*", "D")
+
+
 def equals_one(x):
     return x == 1
 
@@ -50,24 +53,29 @@ def plot_bhv_traj(
     stim,
     ax=None,
     pca=3,
-    cmaps=("Purples", "Blues", "Oranges", "Reds"),
+    cmaps=None,
+    stim_marker=default_stim_marker,
 ):
-    p = skd.PCA(pca)
+    if cmaps is None:
+        cmaps = {1: "Greens", 0.5: "Blues", -0.5: "Purples", -1: "Reds"}
     pca_trajs = []
-    for (i, j, k), (v, b, s), mask in make_u_var_mask_gen(valence, block, stim):
+    for (j, k), (b, s), mask in make_u_var_mask_gen(block, stim):
         pca_trajs.append(np.mean(bhv[mask], axis=0).T)
-    p.fit(np.concatenate(pca_trajs, axis=0))
-    for (i, j, k), (v, b, s), mask in make_u_var_mask_gen(valence, block, stim):
-        traj = p.transform(np.mean(bhv[mask], axis=0).T)
+    pipe = na.make_model_pipeline(pca=pca)
+    pipe.fit(np.concatenate(pca_trajs, axis=0))
+    for (j, k), (b, s), mask in make_u_var_mask_gen(block, stim):
+        traj = pipe.transform(np.mean(bhv[mask], axis=0).T)
+        val_jk = np.median(valence[mask])
         gpl.plot_colored_line(
             *traj.T,
             ax=ax,
             col_inds=np.linspace(0.1, 0.9, traj.shape[0]),
-            cmap=cmaps[i],
+            cmap=cmaps[val_jk],
+            marker=stim_marker[k],
         )
     ax.set_aspect("equal")
     gpl.clean_3d_plot(ax)
-    gpl.make_3d_bars(ax, bar_len=1000)
+    gpl.make_3d_bars(ax, bar_len=1)
 
 
 def get_bhv_dec_regressors(
@@ -155,29 +163,34 @@ def plot_multiblock_gen(xs, out, ax=None, tr_block=1, te_blocks=(2, 3)):
 def get_bhv_rep_dec_info(
     data,
     t_start,
-    sess_ind=0,
+    t_end=None,
     binsize=500,
     binstep=500,
-    marker_regex=".*manual.*(x|y)",
+    marker_regex=".*manual.*\\.(x|y)",
     time_zero_field="CS On",
 ):
-    pops, xs = data.get_neural_activity(
+    if t_end is None:
+        t_end = t_start
+    rep, xs_rep = data.get_neural_activity(
         binsize,
         t_start,
-        t_start,
+        t_end,
         binstep,
         time_zero_field=time_zero_field,
     )
-    rep = pops[sess_ind]
-    valence = data["valence"][sess_ind].to_numpy()
+    valence = list(x.to_numpy() for x in data["valence"])
 
     markers = list(x for x in data.session_keys if re.match(marker_regex, x))
 
-    marks, xs = data.get_field_timeseries(
-        markers, time_zero_field=time_zero_field, begin=t_start, end=t_start + binsize
+    bhv, xs_bhv = data.get_field_timeseries(
+        markers,
+        time_zero_field=time_zero_field,
+        begin=t_start,
+        end=t_end + binsize,
+        binsize=binsize,
+        binstep=binstep,
     )
-    bhv = np.nanmean(marks[sess_ind], axis=-1, keepdims=True)
-    return rep, bhv, valence
+    return (rep, xs_rep), (bhv, xs_bhv), valence
 
 
 def decode_bhv_rep_corr(rep, bhv, target, mask=None, n_folds=100, rng_seed=None):
@@ -333,7 +346,7 @@ def block_rep_change(
     n_folds=50,
     model=skm.LinearSVC,
     valence_cmap="bwr",
-    stim_marker=("X", "o", "*", "D"),
+    stim_marker=default_stim_marker,
     n_trls_avg=8,
     ax=None,
     arrow_len=0.5,
