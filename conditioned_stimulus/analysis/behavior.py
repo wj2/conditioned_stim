@@ -3,8 +3,10 @@ import sklearn.svm as skm
 import sklearn.model_selection as skms
 import sklearn.decomposition as skd
 import pandas as pd
+import re
 
 import general.neural_analysis as na
+import general.plotting as gpl
 import general.utility as u
 
 default_predictors = (
@@ -30,11 +32,42 @@ history_predictors = (
     "airpuff_5_back",
 )
 video_predictors = (
-    "video_e3v8360", # face_1
-    "video_e3v83d6", # face_2
-    "video_e3v83ad", # body_1
-    "video_e3v831b", # body_2
+    "video_e3v8360",  # face_1
+    "video_e3v83d6",  # face_2
+    "video_e3v83ad",  # body_1
+    "video_e3v831b",  # body_2
 )
+
+
+def get_average_bodypart_pos(
+    data, feats, x_regex=".*\\.x", y_regex=".*\\.y", cent_func=np.median
+):
+    xs = list(x for x in feats if re.match(x_regex, x) is not None)
+    if len(xs) == 0:
+        print(feats)
+    for x in xs:
+        sess_xs = list(cent_func(np.concatenate(y.to_numpy())) for y in data[x])
+    
+    ys = list(x for x in feats if re.match(y_regex, x) is not None)
+    for y in ys:
+        sess_ys = list(cent_func(np.concatenate(z.to_numpy())) for z in data[y])
+    return sess_xs, sess_ys    
+
+
+def get_bodypart_scaffold(data, bodypart_lists, sess_ind=0):
+    scaffold = {}
+    for part, markers in bodypart_lists.items():
+        xs, ys = get_average_bodypart_pos(data, markers)
+        scaffold[part] = (xs[sess_ind], ys[sess_ind])
+    return scaffold
+
+
+@gpl.ax_adder()
+def plot_bodyparts(scaffold, weights=None, ax=None):
+    pts = np.stack(list(scaffold.values()), axis=0)
+    if weights is not None:
+        weights = np.concatenate(list(weights.get(k) for k in scaffold.keys()))
+    ax.scatter(*pts.T, color=weights)
 
 
 def _make_nan_mask(X):
@@ -117,7 +150,7 @@ def _mag_valence(valences):
     return v_mags > np.nanmean(v_mags)
 
 
-def _get_dim(pred_vid, targ, n_inds=20, pre_pca=.95, mean=True):
+def _get_dim(pred_vid, targ, n_inds=20, pre_pca=0.95, mean=True):
     preds = np.stack(list(pv[-n_inds:].flatten() for pv in pred_vid), axis=0)
     if pre_pca < 1:
         p = skd.PCA(pre_pca)
@@ -130,7 +163,7 @@ def _get_dim(pred_vid, targ, n_inds=20, pre_pca=.95, mean=True):
     coeff_reshaped = np.reshape(use_coeff, (n_inds, pred_vid.iloc[0].shape[1]))
     if mean:
         coeff_reshaped = np.mean(coeff_reshaped, axis=0, keepdims=True)
-    return coeff_reshaped, m.intercept_/n_inds
+    return coeff_reshaped, m.intercept_ / n_inds
 
 
 def make_dec_mask(data, used_pca, ind, mult, vid_shape=(240, 320), pred="video_1"):
@@ -141,10 +174,16 @@ def make_dec_mask(data, used_pca, ind, mult, vid_shape=(240, 320), pred="video_1
     n_ts = coeffs.shape[1]
     n_trls = len(use_data)
 
-    masks = np.zeros((n_trls, n_ts,) + vid_shape)
+    masks = np.zeros(
+        (
+            n_trls,
+            n_ts,
+        )
+        + vid_shape
+    )
     for i in range(n_trls):
         vid_i = use_data.iloc[i][-n_ts:]
-        weights = vid_i*use_coeff
+        weights = vid_i * use_coeff
         full_weights = used_pca.inverse_transform(weights)
         shaped_weights = np.reshape(full_weights, (n_ts,) + vid_shape)
         masks[i] = shaped_weights
@@ -158,36 +197,45 @@ def make_dec_video(data, used_pca, ind, mult, vid_shape=(240, 320)):
     vid_pos = np.zeros((n_ts,) + tuple(vid_shape))
     vid_neg = np.zeros((n_ts,) + tuple(vid_shape))
     for i in range(n_ts):
-        v_i_pos = used_pca.inverse_transform(mult*use_coeff[i])
-        v_i_neg = used_pca.inverse_transform(-mult*use_coeff[i])
+        v_i_pos = used_pca.inverse_transform(mult * use_coeff[i])
+        v_i_neg = used_pca.inverse_transform(-mult * use_coeff[i])
         vid_pos[i] = np.reshape(v_i_pos, vid_shape)
         vid_neg[i] = np.reshape(v_i_neg, vid_shape)
     return vid_pos, vid_neg
 
 
-def get_dec_dims(data, pred='video_1', n_inds=20, ret_data=False, **kwargs):
+def get_dec_dims(data, pred="video_1", n_inds=20, ret_data=False, **kwargs):
     mask = ~pd.isna(data[pred])
 
     mask_val = mask
-    targ_val = (data['valence'] > 0)[mask_val]
+    targ_val = (data["valence"] > 0)[mask_val]
     data_val = data[mask_val][pred]
     val_dim, val_inter = _get_dim(
-        data_val, targ_val, n_inds=n_inds, **kwargs,
+        data_val,
+        targ_val,
+        n_inds=n_inds,
+        **kwargs,
     )
 
-    mask_pos = np.logical_and(data['valence'] > 0, mask)
-    targ_pos = (data['valence'] > .6)[mask_pos]
+    mask_pos = np.logical_and(data["valence"] > 0, mask)
+    targ_pos = (data["valence"] > 0.6)[mask_pos]
     data_pos = data[mask_pos][pred]
     pos_dim, pos_inter = _get_dim(
-        data_pos, targ_pos, n_inds=n_inds, **kwargs,
+        data_pos,
+        targ_pos,
+        n_inds=n_inds,
+        **kwargs,
     )
 
-    mask_neg = np.logical_and(data['valence'] < 0, mask)
-    targ_neg = (data['valence'] < -.6)[mask_neg]
+    mask_neg = np.logical_and(data["valence"] < 0, mask)
+    targ_neg = (data["valence"] < -0.6)[mask_neg]
     data_neg = data[mask_neg][pred]
 
     neg_dim, neg_inter = _get_dim(
-        data_neg, targ_neg, n_inds=n_inds, **kwargs,
+        data_neg,
+        targ_neg,
+        n_inds=n_inds,
+        **kwargs,
     )
     dims = np.stack((val_dim, pos_dim, neg_dim), axis=0)
     inters = np.stack((val_inter, pos_inter, neg_inter), axis=0)
@@ -224,7 +272,7 @@ def _flatten_X(X, last_vid_inds=None):
                 else:
                     lvi_i = last_vid_inds
 
-                new_vid = np.zeros((len(cg), lvi_i*vid_shape[1]))
+                new_vid = np.zeros((len(cg), lvi_i * vid_shape[1]))
                 for j, cg_j in enumerate(cg):
                     if cg_j is None:
                         new_vid[j] = np.nan
@@ -246,8 +294,8 @@ def decoding_param_sweep(param_name, param_vals, *args, n_cv=100, **kwargs):
     for i, pv in enumerate(param_vals):
         kwargs[param_name] = pv
         out = decode_valence(*args, n_cv=n_cv, **kwargs)
-        test_scores[i] = out['test_score']
-        gen_scores[i] = out['test_mask_score']
+        test_scores[i] = out["test_score"]
+        gen_scores[i] = out["test_mask_score"]
     return test_scores, gen_scores
 
 
@@ -271,7 +319,7 @@ def decode_valence_tc(
     kernel="rbf",
     num_frames=None,
     trl_field="block_trial_num",
-    **kwargs
+    **kwargs,
 ):
     if model_kwargs is None:
         model_kwargs = {"kernel": kernel}
@@ -336,7 +384,7 @@ def decode_valence(
     kernel="rbf",
     num_frames=None,
     use_ica=False,
-    **kwargs
+    **kwargs,
 ):
     if model_kwargs is None:
         model_kwargs = {"kernel": kernel}
@@ -352,7 +400,10 @@ def decode_valence(
     train_mask, test_mask = mask_func(data, *args, existing_mask=nan_mask, **kwargs)
 
     pipe = na.make_model_pipeline(
-        model=model, pca=pre_pca, use_ica=use_ica, **model_kwargs,
+        model=model,
+        pca=pre_pca,
+        use_ica=use_ica,
+        **model_kwargs,
     )
 
     cv = shuffler(n_cv, test_size=test_frac)
@@ -378,8 +429,9 @@ def decode_valence(
                 e.decision_function(X[test_mask]) for e in out["estimator"]
             )
         except AttributeError:
-            out["test_mask_proj"] = list(e.predict(X[test_mask])
-                                         for e in out["estimator"])
+            out["test_mask_proj"] = list(
+                e.predict(X[test_mask]) for e in out["estimator"]
+            )
 
         out["test_mask_keys"] = data[keep_keys][test_mask]
 
@@ -392,7 +444,7 @@ def decode_valence_time(*args, trial_cutoff=50, **kwargs):
         trial_cutoff,
         mask_func=_make_early_masks,
         keep_keys=["valence", "trial_num"],
-        **kwargs
+        **kwargs,
     )
 
 
@@ -403,12 +455,13 @@ def decode_valence_block(*args, train_block=1, test_block=2, **kwargs):
         test_block,
         mask_func=_make_block_masks,
         keep_keys=["valence", "trial_num"],
-        **kwargs
+        **kwargs,
     )
 
 
-def decode_valence_mag(*args, train_block=1, test_block=2, use_mags="pos",
-                       use_blocks=True, **kwargs):
+def decode_valence_mag(
+    *args, train_block=1, test_block=2, use_mags="pos", use_blocks=True, **kwargs
+):
     if use_mags == "pos":
         if use_blocks:
             mask_func = _make_block_masks_pos
@@ -428,7 +481,7 @@ def decode_valence_mag(*args, train_block=1, test_block=2, use_mags="pos",
         target_func=_mag_valence,
         mask_func=mask_func,
         keep_keys=["valence", "trial_num"],
-        **kwargs
+        **kwargs,
     )
 
 
@@ -436,10 +489,14 @@ default_dec_dict = {
     "block 1 to 2": (decode_valence_block, {"train_block": 1, "test_block": 2}),
     "block 2 to 1": (decode_valence_block, {"train_block": 2, "test_block": 1}),
     "time": (decode_valence_time, {"trial_cutoff": 50}),
-    "mag_pos": (decode_valence_mag, {"train_block": 1, "test_block": 2,
-                                     "use_mags": "pos", "use_blocks": False}),
-    "mag_neg": (decode_valence_mag, {"train_block": 1, "test_block": 2,
-                                     "use_mags": "neg", "use_blocks": False}),
+    "mag_pos": (
+        decode_valence_mag,
+        {"train_block": 1, "test_block": 2, "use_mags": "pos", "use_blocks": False},
+    ),
+    "mag_neg": (
+        decode_valence_mag,
+        {"train_block": 1, "test_block": 2, "use_mags": "neg", "use_blocks": False},
+    ),
 }
 
 
@@ -462,7 +519,9 @@ predictor_dict = {
 
 
 def decode_feature_importance(
-    data, pred_groups=predictor_dict, **kwargs,
+    data,
+    pred_groups=predictor_dict,
+    **kwargs,
 ):
     all_preds = set(np.concatenate(list(pred_groups.values())))
     pred_dict = dict(all_=all_preds, **pred_groups)
@@ -471,4 +530,3 @@ def decode_feature_importance(
         dd_nv = decode_valence_all(data, predictors=v, **kwargs)
         out_dict[k] = dd_nv
     return out_dict
-

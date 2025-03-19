@@ -45,6 +45,47 @@ def make_u_var_mask_gen(*vars):
             yield ind, vals, mask
 
 
+def plot_heat_maps(
+    *outs,
+    faxs=None,
+    cmap="Blues",
+    fwid=3,
+    titles=None,
+    vmin=0.5,
+    vmax=None,
+    plot_gen=False,
+):
+    if titles is None:
+        titles = ("",) * len(outs)
+    if faxs is None:
+        faxs = plt.subplots(1, len(outs), figsize=(fwid * len(outs), fwid))
+    f, axs = faxs
+    if plot_gen:
+        key = "time_generalization_gen"
+    else:
+        key = "time_generalization"
+    arrs = list(np.mean(x[0][key], axis=0) for x in outs)
+    if vmax is None:
+        vmax = np.max(np.concatenate(list(x.flatten() for x in arrs)))
+    for i, arr in enumerate(arrs):
+        xs_i = outs[i][1]
+        p = gpl.pcolormesh(
+            xs_i,
+            xs_i,
+            arr,
+            ax=axs[i],
+            cmap=cmap,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        axs[i].set_ylabel("train time (ms)")
+        axs[i].set_xlabel("test time (ms)")
+        axs[i].set_aspect("equal")
+        axs[i].set_title(titles[i])
+
+    f.colorbar(p, ax=axs, label="decoding performance")
+
+
 @gpl.ax_adder(three_dim=True)
 def plot_bhv_traj(
     bhv,
@@ -334,6 +375,10 @@ def _make_tr_mask(block, train_blocks, n_train_trls):
     return tr_mask
 
 
+default_v_pos_color = np.array([25, 86, 119]) / 255
+default_v_neg_color = np.array([184, 29, 34]) / 255
+
+
 @gpl.ax_adder()
 def block_rep_change(
     rep,
@@ -350,8 +395,14 @@ def block_rep_change(
     n_trls_avg=8,
     ax=None,
     arrow_len=0.5,
-    v_color=(0.2, 0.5, 0.2),
-    m_color=(0.2, 0.9, 0.4),
+    v_pos_color=default_v_pos_color,
+    v_neg_color=default_v_neg_color,
+    m_low_color=(0.8, 0.8, 0.8),
+    m_high_color="k",
+    t_size=20,
+    s_size=80,
+    plot_single_trials=False,
+    arrow_wid=0.04,
     **kwargs,
 ):
     valence = valence.to_numpy()
@@ -379,7 +430,7 @@ def block_rep_change(
     )
 
     basis = na.get_multioutput_coeffs(out["estimators"], pipeline_ind=-1, orthog=True)
-    coeffs = na.get_multioutput_coeffs(out["estimators"], pipeline_ind=-1)
+    coeffs, offsets = na.get_multioutput_coeffs(out["estimators"], pipeline_ind=-1)
     coeffs_mu = np.mean(coeffs[:, 0], axis=0)
     basis_mu = np.mean(basis[:, 0], axis=0)
 
@@ -388,21 +439,50 @@ def block_rep_change(
     u_blocks = np.unique(block)
     v_cmap = plt.get_cmap(valence_cmap)
     rep_proj = (basis_mu @ rep[..., 0]).T
+    offsets_mu = np.mean(offsets, axis=0)
+    side = (coeffs_mu @ rep[..., 0]).T + offsets_mu
+    pred = side > 0
+
     dim_proj = arrow_len * u.make_unit_vector((basis_mu @ coeffs_mu.T).T)
 
     ax.arrow(
-        0, 0, dim_proj[0, 0], dim_proj[0, 1], color=v_color, width=0.01, label="valence"
+        0,
+        0,
+        dim_proj[0, 0],
+        dim_proj[0, 1],
+        color=v_pos_color,
+        width=arrow_wid,
+        label="valence",
+    )
+    ax.arrow(
+        0,
+        0,
+        -dim_proj[0, 0],
+        -dim_proj[0, 1],
+        color=v_neg_color,
+        width=arrow_wid,
+        label="valence",
+    )
+    ax.arrow(
+        0,
+        0,
+        -dim_proj[1, 0],
+        -dim_proj[1, 1],
+        color=m_low_color,
+        width=arrow_wid,
+        label="magnitude",
     )
     ax.arrow(
         0,
         0,
         dim_proj[1, 0],
         dim_proj[1, 1],
-        color=m_color,
-        width=0.01,
+        color=m_high_color,
+        width=arrow_wid,
         label="magnitude",
     )
-    valence_rs = valence - np.min(valence) - 0.1
+    valence_sf = -valence
+    valence_rs = valence_sf - np.min(valence_sf) - 0.1
     valence_rs = valence_rs / (np.max(valence_rs) + 0.1)
     for i, s in enumerate(u_stim):
         stim_mask = s == stim
@@ -413,25 +493,43 @@ def block_rep_change(
         inds = np.arange(len(rp_s))
         ind_dists = skmp.euclidean_distances(inds[:, None]) <= n_trls_avg
         rp_s_avg = np.zeros_like(rp_s)
+        corr_s = np.mean(pred[mask_s] == dec_targets[mask_s], axis=1)
+        c_s_avg = np.zeros_like(corr_s)
         for k in range(len(inds)):
             rp_s_avg[k] = np.mean(rp_s[ind_dists[k]], axis=0)
+            c_s_avg[k] = np.mean(corr_s[ind_dists[k]], axis=0)
         ax.plot(*rp_s_avg.T, color=(0.9, 0.9, 0.9))
         for j, b in enumerate(u_blocks):
             b_mask = b == block_s
             color = v_cmap(np.median(valence_rs[mask_s][b_mask]))
 
-            ax.plot(*rp_s_avg[block_s == b].T, color=color)
+            gpl.plot_width_line(
+                *rp_s_avg[block_s == b].T,
+                wid_inds=c_s_avg[block_s == b],
+                vmin=0.5,
+                ax=ax,
+                color=color,
+            )
+            if plot_single_trials:
+                ax.scatter(
+                    *rp_s[block_s == b].T,
+                    color=color,
+                    marker=marker,
+                    s=t_size,
+                )
             ax.scatter(
                 *rp_s_avg[block_s == b][[0]].T,
                 color=(1, 1, 1),
                 edgecolors=color,
                 marker=marker,
+                s=s_size,
                 zorder=-1,
             )
             ax.scatter(
                 *rp_s_avg[block_s == b][[-1]].T,
                 color=color,
                 marker=marker,
+                s=s_size,
                 zorder=-1,
             )
     ax.set_aspect("equal")
