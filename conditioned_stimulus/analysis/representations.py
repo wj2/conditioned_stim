@@ -209,6 +209,7 @@ def get_bhv_rep_dec_info(
     binstep=500,
     marker_regex=".*manual.*\\.(x|y)",
     time_zero_field="CS On",
+    regions=None,
 ):
     if t_end is None:
         t_end = t_start
@@ -218,6 +219,7 @@ def get_bhv_rep_dec_info(
         t_end,
         binstep,
         time_zero_field=time_zero_field,
+        regions=regions,
     )
     valence = list(x.to_numpy() for x in data["valence"])
 
@@ -289,18 +291,23 @@ def plot_bhv_dir(
     gpl.make_3d_bars(ax, center=(-0.2, -0.2, -0.2), bar_len=0.1)
 
 
-@gpl.ax_adder()
-def plot_bhv_weight_map(xs, vec, markers, cmap="Blues", ax=None, n_clusters=3):
+def plot_bhv_weight_map(
+    xs, vec, markers, cmap="Blues", fax=None, ax_cb=None, n_clusters=3, figsize=(10, 20)
+):
+    if fax is None:
+        fax = plt.subplots(1, 1, figsize=figsize)
+    f, ax = fax
     ys = np.arange(vec.shape[1])
     vec = np.abs(vec).T
     if n_clusters is not None:
         gm = skmix.GaussianMixture(n_components=n_clusters)
         inds = gm.fit_predict(vec)
-        inds = np.argsort(inds)
+        inds = np.lexsort((markers, inds))
         vec = vec[inds]
         markers = np.array(markers, dtype=object)[inds]
-    gpl.pcolormesh(xs, ys, vec, ax=ax, cmap=cmap)
+    m = gpl.pcolormesh(xs, ys, vec, ax=ax, cmap=cmap, vmin=0)
     ax.set_yticklabels(markers)
+    f.colorbar(m, ax=ax, shrink=.4)
 
 
 @gpl.ax_adder()

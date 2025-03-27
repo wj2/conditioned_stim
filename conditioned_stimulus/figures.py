@@ -67,7 +67,7 @@ class TimeGeneralizationFigure(CondStimFigure):
 
         self.gss = gss
 
-    def get_rep_bhv_info(self, key):
+    def get_rep_bhv_info(self, key, **kwargs):
         if self.data.get((key, "info")) is None:
             t_start = self.params.getfloat("t_start")
             t_end = self.params.getfloat("t_end")
@@ -83,14 +83,17 @@ class TimeGeneralizationFigure(CondStimFigure):
                 binsize=binsize,
                 binstep=binstep,
                 time_zero_field=tzf,
+                **kwargs,
             )
             self.data[(key, "info")] = info
         return self.data[(key, "info")]
 
-    def _time_generalization(self, key, sess_ind, target_mask_func, gen=False):
+    def _time_generalization(
+        self, key, sess_ind, target_mask_func, gen=False, **kwargs
+    ):
         axs = self.gss[key]
-        (rep, xs_r), (bhv, xs_b), valence = self.get_rep_bhv_info(key)
-        
+        (rep, xs_r), (bhv, xs_b), valence = self.get_rep_bhv_info(key, **kwargs)
+
         vmax = self.params.getfloat("vmax")
         vmin = self.params.getfloat("vmin")
         n_folds = self.params.getint("n_folds")
@@ -113,10 +116,18 @@ class TimeGeneralizationFigure(CondStimFigure):
                 rep_kwargs = {}
                 bhv_kwargs = {}
             out_rep = na.fold_skl_shape(
-                tr_rep, tr_targ, n_folds, time_generalization=True, **rep_kwargs,
+                tr_rep,
+                tr_targ,
+                n_folds,
+                time_generalization=True,
+                **rep_kwargs,
             )
             out_bhv = na.fold_skl_shape(
-                tr_bhv, tr_targ, n_folds, time_generalization=True, **bhv_kwargs,
+                tr_bhv,
+                tr_targ,
+                n_folds,
+                time_generalization=True,
+                **bhv_kwargs,
             )
             self.data[(key, sess_ind, "dec")] = (out_rep, out_bhv)
         out_rep, out_bhv = self.data[(key, sess_ind, "dec")]
@@ -130,7 +141,7 @@ class TimeGeneralizationFigure(CondStimFigure):
             plot_gen=gen,
         )
 
-    def panel_valence_time_gen(self, sess_ind=0):
+    def panel_valence_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_valence_time_gen"
 
         def tm_func(val):
@@ -138,9 +149,9 @@ class TimeGeneralizationFigure(CondStimFigure):
             targ = val > 0
             return targ, mask
 
-        self._time_generalization(key, sess_ind, tm_func)
+        self._time_generalization(key, sess_ind, tm_func, **kwargs)
 
-    def panel_magnitude_time_gen(self, sess_ind=0):
+    def panel_magnitude_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_magnitude_time_gen"
 
         def tm_func(val):
@@ -148,9 +159,9 @@ class TimeGeneralizationFigure(CondStimFigure):
             targ = np.abs(val) > 0.75
             return targ, mask
 
-        self._time_generalization(key, sess_ind, tm_func)
+        self._time_generalization(key, sess_ind, tm_func, **kwargs)
 
-    def panel_positive_magnitude_time_gen(self, sess_ind=0):
+    def panel_positive_magnitude_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_positive_magnitude_time_gen"
 
         def tm_func(val):
@@ -158,9 +169,9 @@ class TimeGeneralizationFigure(CondStimFigure):
             targ = np.abs(val) > 0.75
             return targ, mask
 
-        self._time_generalization(key, sess_ind, tm_func)
+        self._time_generalization(key, sess_ind, tm_func, **kwargs)
 
-    def panel_negative_magnitude_time_gen(self, sess_ind=0):
+    def panel_negative_magnitude_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_negative_magnitude_time_gen"
 
         def tm_func(val):
@@ -168,46 +179,46 @@ class TimeGeneralizationFigure(CondStimFigure):
             targ = np.abs(val) > 0.75
             return targ, mask
 
-        self._time_generalization(key, sess_ind, tm_func)
+        self._time_generalization(key, sess_ind, tm_func, **kwargs)
 
-    def panel_small_gen_time_gen(self, sess_ind=0):
+    def panel_small_gen_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_small_time_gen"
 
         def tm_func(val):
-            mask = np.abs(val) < .75
+            mask = np.abs(val) < 0.75
             targ = val > 0
-            gen_mask = np.abs(val) > .75
+            gen_mask = np.abs(val) > 0.75
             return targ, mask, gen_mask
 
-        self._time_generalization(key, sess_ind, tm_func, gen=True)
+        self._time_generalization(key, sess_ind, tm_func, gen=True, **kwargs)
 
-    def panel_large_gen_time_gen(self, sess_ind=0):
+    def panel_large_gen_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_large_time_gen"
 
         def tm_func(val):
-            mask = np.abs(val) > .75
+            mask = np.abs(val) > 0.75
             targ = val > 0
-            gen_mask = np.abs(val) < .75
+            gen_mask = np.abs(val) < 0.75
             return targ, mask, gen_mask
 
-        self._time_generalization(key, sess_ind, tm_func, gen=True)
+        self._time_generalization(key, sess_ind, tm_func, gen=True, **kwargs)
 
-    def panel_small_time_gen(self, sess_ind=0):
+    def panel_small_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_small_time_gen"
 
         def tm_func(val):
-            mask = np.abs(val) < .75
+            mask = np.abs(val) < 0.75
             targ = val > 0
             return targ, mask
 
-        self._time_generalization(key, sess_ind, tm_func)
+        self._time_generalization(key, sess_ind, tm_func, **kwargs)
 
-    def panel_large_time_gen(self, sess_ind=0):
+    def panel_large_time_gen(self, sess_ind=0, **kwargs):
         key = "panel_large_time_gen"
 
         def tm_func(val):
-            mask = np.abs(val) > .75
+            mask = np.abs(val) > 0.75
             targ = val > 0
             return targ, mask
 
-        self._time_generalization(key, sess_ind, tm_func)
+        self._time_generalization(key, sess_ind, tm_func, **kwargs)
