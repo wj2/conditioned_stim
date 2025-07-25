@@ -29,7 +29,7 @@ def load_session_files(
     dlc_template="[0-9]+_[a-z]+_dlc_df_restruct.pkl",
     dates_specified=None,
 ):
-    print(f'Loading: {folder}')
+    print(f"Loading: {folder}")
     out_dict = {}
     spikes_path = os.path.join(folder, spikes)
     if os.path.exists(spikes_path):
@@ -56,7 +56,7 @@ def load_session_files(
 
 
 def organize_spikes(spikes, neur_info):
-    print(f'  organizing spikes.')
+    print("  organizing spikes.")
     neur_regions = tuple(neur_info["region"])
     n_trls = len(spikes)
     neur_regions_all = (neur_regions,) * n_trls
@@ -98,12 +98,12 @@ def mask_completed_trials(
 
 
 def load_sessions(
-        folder=DATA_FOLD, 
-        completed_only=True, 
-        skip_dlc=False,
-        dates_specified=None, 
-        **kwargs
-    ):
+    folder=DATA_FOLD,
+    completed_only=True,
+    skip_dlc=False,
+    dates_specified=None,
+    **kwargs,
+):
     data = gio.Dataset.from_readfunc(
         load_hashim_gulli_data_folder,
         folder,
@@ -117,16 +117,16 @@ def load_sessions(
 
 
 default_make_numeric = (
-	'Start Trial',
-	'Fixation On',
-	'Fixation Success',
-	'CS On',
-	'Fixation Off',
-	'Trace Start',
-	'Trace End',
-	'Outcome Start',
-	'Outcome End',
-	'End Trial'
+    "Start Trial",
+    "Fixation On",
+    "Fixation Success",
+    "CS On",
+    "Fixation Off",
+    "Trace Start",
+    "Trace End",
+    "Outcome Start",
+    "Outcome End",
+    "End Trial",
 )
 
 
@@ -139,7 +139,7 @@ def load_hashim_gulli_data_folder(
     load_only_nth_files=None,
     make_numeric=default_make_numeric,
     skip_dlc=False,
-    dates_specified=False
+    dates_specified=False,
 ):
     if rename_dicts is None:
         rename_dicts = (conditioned_timing_rename_dict, conditioned_info_rename_dict)
@@ -173,7 +173,7 @@ def load_hashim_gulli_data_folder(
         # convert fields to numeric
         for field in make_numeric:
             type(data_all[field])
-            data_all[field] = pd.to_numeric(data_all[field], errors='coerce')
+            data_all[field] = pd.to_numeric(data_all[field], errors="coerce")
         if "dlc_markers" in data_fl.keys():
             if skip_dlc:
                 print("  skipping dlc")
@@ -205,6 +205,17 @@ def load_hashim_gulli_data_folder(
             data_all["neur_regions"] = neur_regions
         data_all["completed_trial"] = np.isin(data_all["TrialError"], (0, 6))
         data_all["correct_trial"] = data_all["TrialError"] == 0
+        data_all["valence_binary"] = data_all["valence"] > 0
+        data_all["magnitude_binary"] = np.abs(data_all["valence"]) > 0.75
+        data_all["fractal_binary1"] = np.isin(
+            data_all["fractal_chosen"], ("_fractal_A", "_fractal_B")
+        )
+        data_all["fractal_binary2"] = np.isin(
+            data_all["fractal_chosen"], ("_fractal_A", "_fractal_C")
+        )
+        data_all["past_valence"] = np.concatenate(((0,), data_all["valence"][:-1]))
+        data_all["past_valence_binary"] = data_all["past_valence"] > 0
+
         data_all = rename_fields(data_all, *rename_dicts)
         datas.append(data_all)
 
@@ -217,7 +228,7 @@ def load_hashim_gulli_data_folder(
         data=datas,
         n_neurs=n_neurs,
     )
-    print(f'Loading...done.')
+    print("Loading...done.")
     return super_dict
 
 
@@ -245,7 +256,7 @@ def _dim_red_video(video, use_pca=None, keep_pca=0.99):
 # aragorn_230929_10_e3v831bDLC_resnet50_230929_aragorn_
 # body_2Oct23shuffle1_1030000_filtered_labeled.mp4
 video_name_template = (
-    "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+)" ".*"
+    "(?P<monkey>[A-Za-z]+)_(?P<date>[0-9]+)_(?P<trial>[0-9]+)_(?P<cam>[a-z0-9]+).*"
 )
 # video_name_template = (
 #     "(?P<date>[0-9]+)_(?P<monkey>[A-Za-z]+)_(airpuff|choice)_Cam(?P<cam>[0-9]+)"

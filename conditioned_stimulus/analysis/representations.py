@@ -5,6 +5,10 @@ import sklearn.svm as skm
 import sklearn.metrics.pairwise as skmp
 import sklearn.decomposition as skd
 import sklearn.mixture as skmix
+import sklearn.cross_decomposition as skcd
+import sklearn.pipeline as skpipe
+import sklearn.preprocessing as skp
+import sklearn.cluster as skcluster
 
 import general.neural_analysis as na
 import general.plotting as gpl
@@ -201,10 +205,185 @@ def plot_multiblock_gen(xs, out, ax=None, tr_block=1, te_blocks=(2, 3)):
     ax.set_xlabel("time from CS On")
 
 
+def behavioral_generalization(bhv1, targ1, bhv2, targ2, folds_n=50, **kwargs):
+    bhv1 = na.zscore_tc_shape(bhv1)
+    bhv2 = na.zscore_tc_shape(bhv2)
+
+    out = na.fold_skl_shape(
+        bhv1, targ1, folds_n, c_gen=bhv2, l_gen=targ2, mean=False, norm=False, **kwargs
+    )
+    return out
+
+
+def _flatten_time(b):
+    return np.concatenate(list(b[..., i] for i in range(b.shape[-1])), axis=0)
+
+
+def make_translator(bhv1, neur1, bhv2, neur2, n_comps=50, **kwargs):
+    bhv1, neur1, bhv2, neur2 = list(
+        _flatten_time(x) for x in (bhv1, neur1, bhv2, neur2)
+    )
+    pipe1 = na.make_model_pipeline(skcd.CCA, n_components=n_comps, norm=False, **kwargs)
+    pipe1.fit(bhv1, neur1)
+    pipe2 = na.make_model_pipeline(skcd.CCA, n_components=n_comps, norm=False, **kwargs)
+    pipe2.fit(neur2, bhv2)
+
+    def pipe_full(X):
+        return pipe1.predict(pipe2.predict(X))
+
+    return pipe_full
+
+
+def bhv_translation(
+    translation_pair, neur_tr, targ_tr, neur_te, targ_te, n_folds=50, **kwargs
+):
+    trs = make_translator(*translation_pair)
+    neur_trs_te = np.stack(
+        list(trs(neur_te[..., i]) for i in range(neur_te.shape[-1])), axis=-1
+    )
+    out = na.fold_skl_shape(
+        neur_tr,
+        targ_tr,
+        n_folds,
+        c_gen=neur_trs_te,
+        l_gen=targ_te,
+        mean=False,
+    )
+    out["neur_gen"] = neur_trs_te
+    return out
+
+
+def bhv_dec_overlap(bhv, targ, folds_n=50, n_comp=5, **kwargs):
+    bhv = na.zscore_tc_shape(bhv)
+
+    out = na.fold_skl_shape(
+        bhv,
+        targ,
+        folds_n,
+        model=skm.LinearSVC,
+        pre_pca=None,
+        mean=False,
+        norm=False,
+        **kwargs,
+    )
+
+    ests = out["estimators"]
+    coeffs = np.zeros(ests.shape + (bhv.shape[1],))
+    for i, j in u.make_array_ind_iterator(ests.shape):
+        coeffs[i, j] = u.make_unit_vector(ests[i, j][-1].coef_)
+    comps = np.zeros((n_comp, bhv.shape[-1], bhv.shape[1]))
+    for i in range(bhv.shape[-1]):
+        p = skd.PCA(n_comp).fit(bhv[..., i])
+        comps[:, i] = u.make_unit_vector(p.components_)
+    overlaps = np.sum(coeffs[None] * comps[:, None], axis=-1)
+    return overlaps
+
+
+def full_dec_overlap(bhv, targ, folds_n=50, n_comp=5, **kwargs):
+    bhv = na.zscore_tc_shape(bhv)
+
+    out = na.fold_skl_shape(
+        bhv,
+        targ,
+        folds_n,
+        model=skm.LinearSVC,
+        pre_pca=None,
+        mean=False,
+        norm=False,
+        **kwargs,
+    )
+
+    rng = np.random.default_rng()
+    ests = out["estimators"]
+    coeffs = np.zeros(ests.shape + (bhv.shape[1],))
+    totals = np.zeros(ests.shape[-1])
+    dec_vars = np.zeros(ests.shape)
+    null_vars = rng.normal(0, 1, size=coeffs.shape)
+    dec_vars_null = np.zeros_like(dec_vars)
+    for i, j in u.make_array_ind_iterator(ests.shape):
+        nv = u.make_unit_vector(null_vars[i, j])
+        coeffs[i, j] = u.make_unit_vector(ests[i, j][-1].coef_)
+        projs = bhv[..., j] @ coeffs[i, j]
+        projs_null = bhv[..., j] @ nv
+        dec_vars[i, j] = np.std(projs)
+        dec_vars_null[i, j] = np.std(projs_null)
+        totals[j] = np.sqrt(np.sum(np.var(bhv[..., j], axis=0)))
+    return dec_vars, dec_vars_null, np.expand_dims(totals, 0)
+
+
+def get_bhv_rep_dec_regions_info(
+    *args,
+    regions=(
+        "BA",
+        "LA",
+        "Insula",
+        "IT",
+        "all",
+    ),
+    **kwargs,
+):
+    reps_all = {}
+    for i, r in enumerate(regions):
+        if r == "all":
+            r_use = None
+        else:
+            r_use = (r,)
+        (reps, xs_r), (bhvs, xs_b), target = get_bhv_rep_dec_info(
+            *args,
+            **kwargs,
+            regions=r_use,
+        )
+        reps_all[r] = reps
+    return (reps_all, xs_r), (bhvs, xs_b), target
+
+
+def cluster_correlation_structure(data):
+    corr = compute_correlation_structure(data)
+    m = skmix.GaussianMixture(n_components=5)
+    labels = m.fit_predict(corr)
+    return corr, labels
+
+
+def cluster_temporal_structure(data):
+    corr = compute_temporal_structure(data)
+    m = skmix.GaussianMixture(n_components=5)
+    labels = m.fit_predict(corr)
+    return corr, labels
+
+
+def compute_temporal_structure(tc_data):
+    """
+    tc_data : array-like, N x D x T
+       N trials, D dimensions, T time points
+    """
+    tc_cat = np.concatenate(
+        list(tc_data[..., i] for i in range(tc_data.shape[-1])), axis=1
+    )
+    tc_zs = skp.StandardScaler().fit_transform(tc_cat)
+    return tc_zs
+
+
+def compute_correlation_structure(tc_data):
+    """
+    tc_data : array-like, N x D x T
+       N trials, D dimensions, T time points
+    """
+    mu = np.mean(tc_data, axis=0, keepdims=True)
+    std = np.std(tc_data, axis=0, keepdims=True)
+    std[std == 0] = 1
+    tc_zs = (tc_data - mu) / std
+    tc_exp = np.stack(
+        list((x @ x.T)[np.triu_indices(x.shape[0])].flatten() for x in tc_zs), axis=0
+    )
+    tc_use = skd.PCA(whiten=True).fit_transform(tc_exp)
+    return tc_use
+
+
 def get_bhv_rep_dec_info(
     data,
     t_start,
     t_end=None,
+    target_fields=("valence", "Block", "fractal_chosen"),
     binsize=500,
     binstep=500,
     marker_regex=".*manual.*\\.(x|y)",
@@ -221,7 +400,7 @@ def get_bhv_rep_dec_info(
         time_zero_field=time_zero_field,
         regions=regions,
     )
-    valence = list(x.to_numpy() for x in data["valence"])
+    targets = list(list(x.to_numpy() for x in data[tf]) for tf in target_fields)
 
     markers = list(x for x in data.session_keys if re.match(marker_regex, x))
 
@@ -229,11 +408,11 @@ def get_bhv_rep_dec_info(
         markers,
         time_zero_field=time_zero_field,
         begin=t_start,
-        end=t_end + binsize,
+        end=t_end,
         binsize=binsize,
         binstep=binstep,
     )
-    return (rep, xs_rep), (bhv, xs_bhv), valence
+    return (rep, xs_rep), (bhv, xs_bhv), targets
 
 
 def decode_bhv_rep_corr(rep, bhv, target, mask=None, n_folds=100, rng_seed=None):
@@ -307,7 +486,7 @@ def plot_bhv_weight_map(
         markers = np.array(markers, dtype=object)[inds]
     m = gpl.pcolormesh(xs, ys, vec, ax=ax, cmap=cmap, vmin=0)
     ax.set_yticklabels(markers)
-    f.colorbar(m, ax=ax, shrink=.4)
+    f.colorbar(m, ax=ax, shrink=0.4)
 
 
 @gpl.ax_adder()
